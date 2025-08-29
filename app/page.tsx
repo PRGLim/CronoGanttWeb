@@ -27,7 +27,6 @@ const translations = {
     after: "Após",
     tableView: "Visualização em Tabela",
     ganttView: "Visualização em Gantt",
-    phase: "Fase",
   },
   en: {
     title: "Project Manager",
@@ -44,7 +43,6 @@ const translations = {
     after: "After",
     tableView: "Table View",
     ganttView: "Gantt View",
-    phase: "Phase",
   },
   es: {
     title: "Gestor de Proyectos",
@@ -61,7 +59,6 @@ const translations = {
     after: "Después",
     tableView: "Vista de Tabla",
     ganttView: "Vista de Gantt",
-    phase: "Fase",
   },
 }
 
@@ -73,7 +70,6 @@ export interface Task {
   startWeek: number
   endWeek: number
   color: string
-  phase?: string
 }
 
 export default function ProjectManager() {
@@ -138,54 +134,7 @@ export default function ProjectManager() {
     setTasks(rescheduledTasks)
   }
 
-  const exportGanttChart = async () => {
-    if (!ganttRef.current) return
-
-    try {
-      const html2canvas = (await import("html2canvas")).default
-      const canvas = await html2canvas(ganttRef.current, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        foreignObjectRendering: false,
-        onclone: (clonedDoc) => {
-          const elements = clonedDoc.querySelectorAll("*")
-          elements.forEach((el) => {
-            const computedStyle = window.getComputedStyle(el as Element)
-            const bgColor = computedStyle.backgroundColor
-            const textColor = computedStyle.color
-
-            if (bgColor && bgColor !== "rgba(0, 0, 0, 0)") {
-              ; (el as HTMLElement).style.backgroundColor = bgColor
-            }
-            if (textColor) {
-              ; (el as HTMLElement).style.color = textColor
-            }
-          })
-        },
-      })
-
-      const link = document.createElement("a")
-      link.download = "gantt-chart.png"
-      link.href = canvas.toDataURL()
-      link.click()
-    } catch (error) {
-      console.error("Erro ao exportar gráfico:", error)
-    }
-  }
-
   const maxWeek = Math.max(...tasks.map((task) => task.endWeek), 12)
-
-  const groupedTasks = tasks.reduce(
-    (acc, task) => {
-      const phase = task.phase || "Sem Fase"
-      if (!acc[phase]) acc[phase] = []
-      acc[phase].push(task)
-      return acc
-    },
-    {} as Record<string, Task[]>,
-  )
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -236,7 +185,6 @@ export default function ProjectManager() {
               <Plus className="h-4 w-4" />
               {t.newTask}
             </Button>
-
           </div>
         </div>
 
@@ -246,13 +194,7 @@ export default function ProjectManager() {
         )}
 
         {viewMode === "table" ? (
-          <TaskTable
-            tasks={tasks}
-            onUpdateTask={updateTask}
-            onRemoveTask={removeTask}
-            onAddTask={addTask}
-            language={language}
-          />
+          <TaskTable tasks={tasks} onUpdateTask={updateTask} onRemoveTask={removeTask} onAddTask={addTask} language={language} />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Tasks List */}
@@ -268,47 +210,40 @@ export default function ProjectManager() {
                   {tasks.length === 0 ? (
                     <p className="text-muted-foreground text-sm">{t.noTasks}</p>
                   ) : (
-                    Object.entries(groupedTasks).map(([phase, phaseTasks]) => (
-                      <div key={phase} className="space-y-2">
-                        <h4 className="font-semibold text-sm text-primary border-b pb-1">
-                          {phase} ({phaseTasks.length})
-                        </h4>
-                        <div className="space-y-2 pl-2">
-                          {phaseTasks.map((task) => (
-                            <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <div className={`w-3 h-3 rounded ${task.color}`} />
-                                  <span className="font-medium text-sm">{task.name}</span>
-                                </div>
-                                <div className="text-xs text-muted-foreground space-y-1">
-                                  <div>ID: {task.id}</div>
-                                  <div>
-                                    {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
-                                  </div>
-                                  <div>
-                                    {t.period}: S{task.startWeek} - S{task.endWeek}
-                                  </div>
-                                  {task.predecessor && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      {t.after}: {task.predecessor}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                              <Button
-                                onClick={() => removeTask(task.id)}
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                    <div className="space-y-2 pl-2">
+                      {tasks.map((task) => (
+                        <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className={`w-3 h-3 rounded ${task.color}`} />
+                              <span className="font-medium text-sm">{task.name}</span>
                             </div>
-                          ))}
+                            <div className="text-xs text-muted-foreground space-y-1">
+                              <div>ID: {task.id}</div>
+                              <div>
+                                {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
+                              </div>
+                              <div>
+                                {t.period}: S{task.startWeek} - S{task.endWeek}
+                              </div>
+                              {task.predecessor && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {t.after}: {task.predecessor}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => removeTask(task.id)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </CardContent>
               </Card>

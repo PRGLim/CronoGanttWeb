@@ -136,7 +136,6 @@ export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFo
       name: formData.name,
       duration,
       predecessor: formData.predecessor || undefined,
-      phase: formData.phase || undefined, // Include phase in submission
     })
   }
 
@@ -186,7 +185,7 @@ export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFo
               />
             </div>
 
-            <div className="space-y-2">
+            {/* <div className="space-y-2">
               <Label htmlFor="phase">{t.phase}</Label>
               <Select
                 value={formData.phase}
@@ -204,7 +203,7 @@ export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFo
                   <SelectItem value={t.phases.deployment}>{t.phases.deployment}</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </div> */}
 
             <div className="space-y-2">
               <Label htmlFor="predecessor">{t.predecessor}</Label>

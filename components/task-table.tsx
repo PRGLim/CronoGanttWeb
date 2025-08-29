@@ -107,7 +107,6 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
       name: task.name,
       duration: task.duration,
       predecessor: task.predecessor,
-      phase: task.phase,
     })
     setErrors({})
   }
@@ -164,7 +163,6 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
         name: newTask.name,
         duration: newTask.duration,
         predecessor: newTask.predecessor,
-        phase: newTask.phase,
         startWeek: 1,
         endWeek: 1,
         color: "bg-chart-1",
@@ -214,7 +212,7 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                   <th className="text-left p-3 font-medium">{t.name}</th>
                   <th className="text-left p-3 font-medium">{t.duration}</th>
                   <th className="text-left p-3 font-medium">{t.predecessor}</th>
-                  <th className="text-left p-3 font-medium">{t.phase}</th>
+                  {/* <th className="text-left p-3 font-medium">{t.phase}</th> */}
                   <th className="text-left p-3 font-medium">{t.startWeek}</th>
                   <th className="text-left p-3 font-medium">{t.endWeek}</th>
                   <th className="text-left p-3 font-medium">{t.actions}</th>
@@ -274,7 +272,7 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                         "-"
                       )}
                     </td>
-                    <td className="p-3">
+                    {/* <td className="p-3">
                       {editingTask === task.id ? (
                         <Input
                           value={editData.phase || ""}
@@ -287,7 +285,7 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                       ) : (
                         "-"
                       )}
-                    </td>
+                    </td> */}
                     <td className="p-3">S{task.startWeek}</td>
                     <td className="p-3">S{task.endWeek}</td>
                     <td className="p-3">
@@ -364,14 +362,14 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                         </datalist>
                       </div>
                     </td>
-                    <td className="p-3">
+                    {/* <td className="p-3">
                       <Input
                         placeholder="Fase"
                         value={newTask.phase || ""}
                         onChange={(e) => setNewTask({ ...newTask, phase: e.target.value || undefined })}
                         className="h-8"
                       />
-                    </td>
+                    </td> */}
                     <td className="p-3">-</td>
                     <td className="p-3">-</td>
                     <td className="p-3">

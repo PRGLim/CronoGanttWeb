@@ -5,9 +5,9 @@ import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'CronoGantt',
+  description: 'Cronograma de projetos com gráfico de Gantt',
+  generator: 'Next.js',
 }
 
 export default function RootLayout({

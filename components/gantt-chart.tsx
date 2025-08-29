@@ -45,16 +45,9 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
   const t = translations[language]
 
   const colorMap: Record<string, string> = {
-    "bg-blue-500": "#3b82f6",
-    "bg-green-500": "#10b981",
-    "bg-purple-500": "#8b5cf6",
-    "bg-red-500": "#ef4444",
-    "bg-yellow-500": "#eab308",
-    "bg-pink-500": "#ec4899",
-    "bg-indigo-500": "#6366f1",
-    "bg-orange-500": "#f97316",
-    "bg-teal-500": "#14b8a6",
-    "bg-cyan-500": "#06b6d4",
+    "bg-red": "var(--secondary)",       // bloco de tarefa vermelho
+    "bg-white": "var(--background)",      // fundo das células
+    "text-white": "var(--foreground)",    // texto das tarefas
   }
 
   const exportToPNG = async (): Promise<void> => {
@@ -103,19 +96,19 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
       <div className="flex justify-end">
         <button
           onClick={exportToPNG}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-700 transition-colors"
         >
           {t.exportPng}
         </button>
       </div>
 
-      <div id="gantt-chart" className="overflow-x-auto bg-white">
+      <div id="gantt-chart" className="overflow-x-auto bg-white rounded-md">
         <div className="min-w-max">
           {/* Header with weeks */}
           <div className="flex border-b border-gray-300">
-            <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300">{t.task}</div>
+            <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300 text-black">{t.task}</div>
             {weeks.map((week) => (
-              <div key={week} className="w-16 p-2 text-center text-sm font-medium bg-gray-100 border-r border-gray-300">
+              <div key={week} className="w-16 p-2 text-center text-sm font-medium bg-gray-100 border-r border-gray-300 text-black">
                 S{week}
               </div>
             ))}
@@ -157,7 +150,7 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
                           flex items-center justify-center
                         `}
                         style={{
-                          backgroundColor: colorMap[task.color] || "#3b82f6",
+                          backgroundColor: colorMap["bg-red"] || "#3b82f6",
                         }}
                       >
                         {isFirstWeek && <span className="text-xs font-medium text-white">{task.duration}s</span>}
