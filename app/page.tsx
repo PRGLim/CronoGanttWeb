@@ -9,6 +9,8 @@ import { GanttChart } from "@/components/gantt-chart"
 import { TaskForm } from "@/components/task-form"
 import { TaskTable } from "@/components/task-table"
 import Image from "next/image"
+import logo from '../public/logo.png'
+import paragon from '../public/paragon.png'
 
 
 type Language = "pt" | "en" | "es"
@@ -145,7 +147,7 @@ export default function ProjectManager() {
           <div>
             <div className="flex items-center gap-1 mb-2">
               <Image
-                src="/logo.png"   // sempre começa com "/" se estiver em public
+                src={logo}   // sempre começa com "/" se estiver em public
                 alt="Logo"
                 width={50}
                 height={50}
@@ -277,7 +279,7 @@ export default function ProjectManager() {
 
       <div className="mt-1 py-6 flex flex-row justify-end items-end w-full">
         <Image
-          src="/paragon.png"   // sempre começa com "/" se estiver em public
+          src={paragon}   // sempre começa com "/" se estiver em public
           alt="Paragon"
           width={100}
           height={30}

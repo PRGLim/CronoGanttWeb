@@ -3,6 +3,7 @@
 import type { Task } from "@/app/page"
 import { toPng } from 'html-to-image';
 import Image from "next/image";
+import logo from '../public/logo.png'
 
 type Language = "pt" | "en" | "es"
 
@@ -109,7 +110,7 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
           <div className="flex border-b border-gray-300">
             <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300 text-black flex items-center gap-2">
               <Image
-                src="/logo.png"
+                src={logo}
                 alt="Logo"
                 width={30}
                 height={30}
