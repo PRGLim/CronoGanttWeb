@@ -31,6 +31,7 @@ const translations = {
     after: "Após",
     tableView: "Visualização em Tabela",
     ganttView: "Visualização em Gantt",
+    weekShort: "S"
   },
   en: {
     title: "Project Manager",
@@ -47,6 +48,7 @@ const translations = {
     after: "After",
     tableView: "Table View",
     ganttView: "Gantt View",
+    weekShort: "W"
   },
   es: {
     title: "Gestor de Proyectos",
@@ -63,6 +65,7 @@ const translations = {
     after: "Después",
     tableView: "Vista de Tabla",
     ganttView: "Vista de Gantt",
+    weekShort: "S"
   },
 }
 
@@ -138,7 +141,7 @@ export default function ProjectManager() {
     setTasks(rescheduledTasks)
   }
 
-  const maxWeek = Math.max(...tasks.map((task) => task.endWeek), 12)
+  const maxWeek = Math.max(...tasks.map((task) => task.endWeek), 8)
 
   return (
     <div className="min-h-screen bg-background p-6 flex flex-col items-center">
@@ -235,7 +238,7 @@ export default function ProjectManager() {
                                 {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
                               </div>
                               <div>
-                                {t.period}: S{task.startWeek} - S{task.endWeek}
+                                {t.period}: {t.weekShort}{task.startWeek} - {t.weekShort}{task.endWeek}
                               </div>
                               {task.predecessor && (
                                 <Badge variant="secondary" className="text-xs">

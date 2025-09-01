@@ -16,6 +16,7 @@ const translations = {
     after: "Após",
     exportPng: "Exportar PNG",
     exporting: "Exportando...",
+    weekShort: "S"
   },
   en: {
     task: "Task",
@@ -25,6 +26,7 @@ const translations = {
     after: "After",
     exportPng: "Export PNG",
     exporting: "Exporting...",
+    weekShort: "W"
   },
   es: {
     task: "Tarea",
@@ -34,6 +36,7 @@ const translations = {
     after: "Después",
     exportPng: "Exportar PNG",
     exporting: "Exportando...",
+    weekShort: "S"
   },
 }
 
@@ -119,7 +122,7 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
             </div>
             {weeks.map((week) => (
               <div key={week} className="w-16 p-2 text-center text-sm font-medium bg-gray-100 border-r border-gray-300 text-black">
-                S{week}
+                {t.weekShort}{week}
               </div>
             ))}
           </div>
@@ -163,7 +166,7 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
                           backgroundColor: colorMap["bg-red"] || "#3b82f6",
                         }}
                       >
-                        {isFirstWeek && <span className="text-xs font-medium text-white">{task.duration}s</span>}
+                        {isFirstWeek && <span className="text-xs font-medium text-white">{task.duration}{t.weekShort.toLowerCase()}</span>}
                       </div>
                     )}
                   </div>

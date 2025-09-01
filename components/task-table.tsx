@@ -22,6 +22,7 @@ const translations = {
     actions: "Ações",
     week: "sem",
     weeks: "sem",
+    weekShort: "S",
     addTask: "Adicionar Tarefa",
     noTasks: "Nenhuma tarefa criada ainda",
     invalidPredecessor: "ID predecessor inválido",
@@ -39,6 +40,7 @@ const translations = {
     actions: "Actions",
     week: "wk",
     weeks: "wks",
+    weekShort: "W",
     addTask: "Add Task",
     noTasks: "No tasks created yet",
     invalidPredecessor: "Invalid predecessor ID",
@@ -56,6 +58,7 @@ const translations = {
     actions: "Acciones",
     week: "sem",
     weeks: "sem",
+    weekShort: "S",
     addTask: "Agregar Tarea",
     noTasks: "Ninguna tarea creada aún",
     invalidPredecessor: "ID predecesor inválido",
@@ -286,8 +289,8 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                         "-"
                       )}
                     </td> */}
-                    <td className="p-3">S{task.startWeek}</td>
-                    <td className="p-3">S{task.endWeek}</td>
+                    <td className="p-3">{t.weekShort}{task.startWeek}</td>
+                    <td className="p-3">{t.weekShort}{task.endWeek}</td>
                     <td className="p-3">
                       <div className="flex gap-1">
                         {editingTask === task.id ? (
