@@ -110,7 +110,7 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
           <div className="flex border-b border-gray-300">
             <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300 text-black flex items-center gap-2">
               <Image
-                src={logo}
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo.png`}
                 alt="Logo"
                 width={30}
                 height={30}

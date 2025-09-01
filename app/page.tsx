@@ -147,7 +147,7 @@ export default function ProjectManager() {
           <div>
             <div className="flex items-center gap-1 mb-2">
               <Image
-                src={logo}   // sempre começa com "/" se estiver em public
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo.png`}   // sempre começa com "/" se estiver em public
                 alt="Logo"
                 width={50}
                 height={50}
@@ -279,7 +279,7 @@ export default function ProjectManager() {
 
       <div className="mt-1 py-6 flex flex-row justify-end items-end w-full">
         <Image
-          src={paragon}   // sempre começa com "/" se estiver em public
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH}/paragon.png`}  // sempre começa com "/" se estiver em public
           alt="Paragon"
           width={100}
           height={30}
