@@ -3,7 +3,8 @@
 import type { Task } from "@/app/page"
 import { toPng } from 'html-to-image';
 import Image from "next/image";
-import logo from '../public/logo.png'
+import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 type Language = "pt" | "en" | "es"
 
@@ -15,6 +16,7 @@ const translations = {
     week: "sem",
     after: "Após",
     exportPng: "Exportar PNG",
+    exportExcel: "Exportar para o Excel",
     exporting: "Exportando...",
     weekShort: "S"
   },
@@ -25,6 +27,7 @@ const translations = {
     week: "wk",
     after: "After",
     exportPng: "Export PNG",
+    exportExcel: "Export to Excel",
     exporting: "Exporting...",
     weekShort: "W"
   },
@@ -35,6 +38,7 @@ const translations = {
     week: "sem",
     after: "Después",
     exportPng: "Exportar PNG",
+    exportExcel: "Exportar a Excel",
     exporting: "Exportando...",
     weekShort: "S"
   },
@@ -48,11 +52,122 @@ interface GanttChartProps {
 
 export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
   const t = translations[language]
+  const sorted = sortTasks(tasks);
 
   const colorMap: Record<string, string> = {
     "bg-red": "var(--secondary)",       // bloco de tarefa vermelho
     "bg-white": "var(--background)",      // fundo das células
     "text-white": "var(--foreground)",    // texto das tarefas
+  }
+  function sortTasks(tasks: Task[]): Task[] {
+    const taskMap = new Map(tasks.map(t => [t.id, t]));
+    const result: Task[] = [];
+    const visited = new Set<string>();
+
+    function visit(task: Task) {
+      if (visited.has(task.id)) return;
+      if (task.predecessor) {
+        const predTask = taskMap.get(task.predecessor);
+        if (predTask) visit(predTask);
+      }
+      visited.add(task.id);
+      result.push(task);
+    }
+
+    tasks.forEach(visit);
+    return result;
+  }
+
+  async function exportToExcelJS() {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Gantt Chart');
+
+    // Cabeçalho
+    ws.addRow(['ID', t.task, ...weeks.map(w => `${t.weekShort}${w}`)]);
+
+    // Tarefas
+    sorted.forEach(task => {
+      const rowValues = [task.id, task.name];
+      weeks.forEach(week => {
+        rowValues.push(week >= task.startWeek && week <= task.endWeek ? '  ' : '');
+      });
+      ws.addRow(rowValues);
+    });
+
+    // Formatação
+    ws.eachRow((row, rowNumber) => {
+      row.eachCell((cell, colNumber) => {
+        if (colNumber <= 2) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+        if (rowNumber === 1) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+          cell.font = { bold: true, color: { argb: '000000' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else if (cell.value === '  ') {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '990000' } };
+          cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+      });
+    });
+
+    // ws.eachRow((row, rowNumber) => {
+    //   if (rowNumber === 1) {
+    //     // Cabeçalho
+    //     row.eachCell(cell => {
+    //       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+    //       cell.font = { bold: true, color: { argb: '000000' } };
+    //       cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    //     });
+    //   } else {
+    //     let mergeStart: number | null = null;
+
+    //     row.eachCell((cell, colNumber) => {
+    //       if (colNumber <= 2) {
+    //         cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    //       } // Pular ID e Nome da tarefa
+    //       if (cell.value === '  ') {
+    //         if (mergeStart === null) mergeStart = colNumber; // Início do bloco
+    //       } else {
+    //         if (mergeStart !== null) {
+    //           // Fim do bloco → mesclar
+    //           ws.mergeCells(rowNumber, mergeStart, rowNumber, colNumber - 1);
+    //           const mergedCell = ws.getCell(rowNumber, mergeStart);
+    //           mergedCell.value = `${(colNumber - mergeStart)}${t.weekShort.toLocaleLowerCase()}`;
+    //           mergedCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '990000' } };
+    //           mergedCell.font = { bold: true, color: { argb: 'FFFFFF' } };
+    //           mergedCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    //           mergeStart = null;
+    //         }
+    //       }
+    //     });
+
+    //     // Caso o bloco vá até a última célula
+    //     if (mergeStart !== null) {
+    //       const lastCol = row.cellCount;
+    //       ws.mergeCells(rowNumber, mergeStart, rowNumber, lastCol);
+    //       const mergedCell = ws.getCell(rowNumber, mergeStart);
+    //       mergedCell.value = `${(lastCol - mergeStart + 1)}${t.weekShort.toLocaleLowerCase()}`;
+    //       mergedCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '990000' } };
+    //       mergedCell.font = { bold: true, color: { argb: 'FFFFFF' } };
+    //       mergedCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    //     }
+    //   }
+    // });
+
+    // Largura das colunas
+    ws.columns = [{ width: 15 }, { width: 30 }, ...weeks.map(() => ({ width: 8 }))];
+
+    // No navegador: gerar buffer e criar download
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gantt-chart-${new Date().toISOString().split('T')[0]}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const exportToPNG = async (): Promise<void> => {
@@ -97,13 +212,19 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
   const weeks = Array.from({ length: maxWeeks }, (_, i) => i + 1)
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
+    <div className="space-y-4 max-h-105 overflow-auto">
+      <div className="flex justify-end gap-2">
         <button
           onClick={exportToPNG}
           className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-700 transition-colors"
         >
           {t.exportPng}
+        </button>
+        <button
+          onClick={exportToExcelJS}
+          className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-700 transition-colors"
+        >
+          {t.exportExcel}
         </button>
       </div>
 

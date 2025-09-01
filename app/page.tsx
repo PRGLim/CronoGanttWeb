@@ -220,7 +220,7 @@ export default function ProjectManager() {
                     {t.tasks} ({tasks.length})
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 max-h-104 overflow-y-auto">
                   {tasks.length === 0 ? (
                     <p className="text-muted-foreground text-sm">{t.noTasks}</p>
                   ) : (
