@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
-  basePath: '/CronoGanttWeb',
-  assetPrefix: '/CronoGanttWeb/',
+  // basePath: '/CronoGanttWeb',
+  // assetPrefix: '/CronoGanttWeb/',
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   images: { unoptimized: true },
