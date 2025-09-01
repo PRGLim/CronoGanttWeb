@@ -8,6 +8,8 @@ import { Trash2, Download, Plus, Calendar, Table } from "lucide-react"
 import { GanttChart } from "@/components/gantt-chart"
 import { TaskForm } from "@/components/task-form"
 import { TaskTable } from "@/components/task-table"
+import Image from "next/image"
+
 
 type Language = "pt" | "en" | "es"
 
@@ -137,12 +139,19 @@ export default function ProjectManager() {
   const maxWeek = Math.max(...tasks.map((task) => task.endWeek), 12)
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
+    <div className="min-h-screen bg-background p-6 flex flex-col items-center">
+      <div className="max-w-7xl space-y-6 w-full flex-1">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">{t.title}</h1>
+            <div className="flex items-center gap-1 mb-2">
+              <Image
+                src="/logo.png"   // sempre começa com "/" se estiver em public
+                alt="Logo"
+                width={50}
+                height={50}
+              />
+              <h1 className="text-3xl font-bold text-foreground">{t.title}</h1>
+            </div>
             <p className="text-muted-foreground">{t.subtitle}</p>
           </div>
           <div className="flex gap-2">
@@ -264,6 +273,15 @@ export default function ProjectManager() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mt-1 py-6 flex flex-row justify-end items-end w-full">
+        <Image
+          src="/paragon.png"   // sempre começa com "/" se estiver em public
+          alt="Paragon"
+          width={100}
+          height={30}
+        />
       </div>
     </div>
   )

@@ -2,6 +2,7 @@
 
 import type { Task } from "@/app/page"
 import { toPng } from 'html-to-image';
+import Image from "next/image";
 
 type Language = "pt" | "en" | "es"
 
@@ -106,7 +107,15 @@ export function GanttChart({ tasks, maxWeeks, language }: GanttChartProps) {
         <div className="min-w-max">
           {/* Header with weeks */}
           <div className="flex border-b border-gray-300">
-            <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300 text-black">{t.task}</div>
+            <div className="w-48 p-3 font-semibold bg-gray-100 border-r border-gray-300 text-black flex items-center gap-2">
+              <Image
+                src="/logo.png"
+                alt="Logo"
+                width={30}
+                height={30}
+              />
+              <span>{t.task}</span>
+            </div>
             {weeks.map((week) => (
               <div key={week} className="w-16 p-2 text-center text-sm font-medium bg-gray-100 border-r border-gray-300 text-black">
                 S{week}
