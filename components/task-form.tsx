@@ -2,20 +2,24 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
-import type { Task } from "@/app/page"
+import type { Task, TaskInput } from "@/lib/schedule"
 
 type Language = "pt" | "en" | "es"
 
 const translations = {
   pt: {
     newTask: "Nova Tarefa",
+    editTask: "Editar Tarefa",
+    saveChanges: "Salvar Alterações",
+    lag: "Folga (semanas)",
+    lagHint: "Deslocamento em relação ao predecessor. Negativo sobrepõe as tarefas.",
     taskId: "ID da Tarefa",
     taskName: "Nome da Tarefa",
     duration: "Duração (semanas)",
@@ -42,6 +46,10 @@ const translations = {
   },
   en: {
     newTask: "New Task",
+    editTask: "Edit Task",
+    saveChanges: "Save Changes",
+    lag: "Lag (weeks)",
+    lagHint: "Offset from the predecessor. Negative values overlap the tasks.",
     taskId: "Task ID",
     taskName: "Task Name",
     duration: "Duration (weeks)",
@@ -68,6 +76,10 @@ const translations = {
   },
   es: {
     newTask: "Nueva Tarea",
+    editTask: "Editar Tarea",
+    saveChanges: "Guardar Cambios",
+    lag: "Holgura (semanas)",
+    lagHint: "Desplazamiento respecto al predecesor. Los valores negativos superponen las tareas.",
     taskId: "ID de Tarea",
     taskName: "Nombre de Tarea",
     duration: "Duración (semanas)",
@@ -96,64 +108,94 @@ const translations = {
 
 interface TaskFormProps {
   existingTasks: Task[]
-  onSubmit: (task: Omit<Task, "startWeek" | "endWeek" | "color">) => void
+  /** Quando informada, o formulário abre em modo de edição. */
+  task?: Task
+  onSubmit: (task: TaskInput) => void
   onCancel: () => void
   language: Language
 }
 
-export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFormProps) {
+export function TaskForm({ existingTasks, task, onSubmit, onCancel, language }: TaskFormProps) {
+  const isEditing = Boolean(task)
   const [formData, setFormData] = useState({
-    id: "",
-    name: "",
-    duration: "",
-    predecessor: "",
-    phase: "", // Added phase field to form data
+    id: task?.id ?? "",
+    name: task?.name ?? "",
+    duration: task ? String(task.duration) : "",
+    predecessor: task?.predecessor ?? "",
+    lag: task ? String(task.lag ?? 0) : "0",
   })
+  const [error, setError] = useState("")
 
   const t = translations[language]
+
+  // Esc fecha o modal
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onCancel])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.id || !formData.name || !formData.duration) {
-      alert(t.fillRequired)
+    const id = formData.id.trim()
+    const name = formData.name.trim()
+
+    if (!id || !name || !formData.duration) {
+      setError(t.fillRequired)
       return
     }
 
-    if (existingTasks.some((task) => task.id === formData.id)) {
-      alert(t.idExists)
+    if (existingTasks.some((other) => other.id === id && other.id !== task?.id)) {
+      setError(t.idExists)
       return
     }
 
-    const duration = Number.parseInt(formData.duration)
-    if (duration <= 0) {
-      alert(t.durationPositive)
+    const duration = Number.parseInt(formData.duration, 10)
+    if (!Number.isFinite(duration) || duration <= 0) {
+      setError(t.durationPositive)
       return
     }
 
+    const lag = Number.parseInt(formData.lag, 10)
+
+    setError("")
     onSubmit({
-      id: formData.id,
-      name: formData.name,
+      id,
+      name,
       duration,
       predecessor: formData.predecessor || undefined,
+      lag: Number.isFinite(lag) ? lag : 0,
     })
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      onClick={(e) => e.target === e.currentTarget && onCancel()}
+    >
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{t.newTask}</CardTitle>
+          <CardTitle>{isEditing ? t.editTask : t.newTask}</CardTitle>
           <Button onClick={onCancel} variant="ghost" size="sm">
             <X className="h-4 w-4" />
           </Button>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
+                {error}
+              </p>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="taskId">{t.taskId} *</Label>
               <Input
                 id="taskId"
+                autoFocus
                 value={formData.id}
                 onChange={(e) => setFormData((prev) => ({ ...prev, id: e.target.value }))}
                 placeholder={t.exampleId}
@@ -185,26 +227,6 @@ export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFo
               />
             </div>
 
-            {/* <div className="space-y-2">
-              <Label htmlFor="phase">{t.phase}</Label>
-              <Select
-                value={formData.phase}
-                onValueChange={(value) => setFormData((prev) => ({ ...prev, phase: value === "none" ? "" : value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t.selectPhase} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t.none}</SelectItem>
-                  <SelectItem value={t.phases.planning}>{t.phases.planning}</SelectItem>
-                  <SelectItem value={t.phases.design}>{t.phases.design}</SelectItem>
-                  <SelectItem value={t.phases.development}>{t.phases.development}</SelectItem>
-                  <SelectItem value={t.phases.testing}>{t.phases.testing}</SelectItem>
-                  <SelectItem value={t.phases.deployment}>{t.phases.deployment}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div> */}
-
             <div className="space-y-2">
               <Label htmlFor="predecessor">{t.predecessor}</Label>
               <Select
@@ -218,18 +240,31 @@ export function TaskForm({ existingTasks, onSubmit, onCancel, language }: TaskFo
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t.none}</SelectItem>
-                  {existingTasks.map((task) => (
-                    <SelectItem key={task.id} value={task.id}>
-                      {task.id} - {task.name}
-                    </SelectItem>
-                  ))}
+                  {existingTasks
+                    .filter((other) => other.id !== task?.id)
+                    .map((other) => (
+                      <SelectItem key={other.id} value={other.id}>
+                        {other.id} - {other.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="lag">{t.lag}</Label>
+              <Input
+                id="lag"
+                type="number"
+                value={formData.lag}
+                onChange={(e) => setFormData((prev) => ({ ...prev, lag: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">{t.lagHint}</p>
+            </div>
+
             <div className="flex gap-2 pt-4">
               <Button type="submit" className="flex-1">
-                {t.createTask}
+                {isEditing ? t.saveChanges : t.createTask}
               </Button>
               <Button type="button" onClick={onCancel} variant="outline" className="flex-1 bg-transparent">
                 {t.cancel}

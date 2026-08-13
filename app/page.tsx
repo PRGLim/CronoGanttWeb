@@ -1,16 +1,14 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Trash2, Download, Plus, Calendar, Table } from "lucide-react"
+import { Plus, Calendar, Table, Trash2, Pencil, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { GanttChart } from "@/components/gantt-chart"
 import { TaskForm } from "@/components/task-form"
 import { TaskTable } from "@/components/task-table"
+import { scheduleTasks, TASK_COLORS, getProjectWeeks, type Task, type TaskInput } from "@/lib/schedule"
 import Image from "next/image"
-import logo from '../public/logo.png'
-import paragon from '../public/paragon.png'
 
 
 type Language = "pt" | "en" | "es"
@@ -20,7 +18,6 @@ const translations = {
     title: "Gerenciador de Projetos",
     subtitle: "Crie tarefas e visualize o cronograma no gráfico de Gantt",
     newTask: "Nova Tarefa",
-    exportPng: "Exportar PNG",
     tasks: "Tarefas",
     ganttChart: "Gráfico de Gantt",
     noTasks: "Nenhuma tarefa criada ainda",
@@ -31,13 +28,20 @@ const translations = {
     after: "Após",
     tableView: "Visualização em Tabela",
     ganttView: "Visualização em Gantt",
-    weekShort: "S"
+    weekShort: "S",
+    totalWeeks: "Semanas totais",
+    clearAll: "Limpar tudo",
+    clearConfirm: "Remover todas as tarefas? Esta ação não pode ser desfeita.",
+    edit: "Editar tarefa",
+    remove: "Remover tarefa",
+    hidePanel: "Ocultar painel",
+    showPanel: "Mostrar painel",
+    dragHint: "Arraste as barras para mover, as bordas para redimensionar e o ícone ⠿ para reordenar.",
   },
   en: {
     title: "Project Manager",
     subtitle: "Create tasks and visualize the timeline in Gantt chart",
     newTask: "New Task",
-    exportPng: "Export PNG",
     tasks: "Tasks",
     ganttChart: "Gantt Chart",
     noTasks: "No tasks created yet",
@@ -48,13 +52,20 @@ const translations = {
     after: "After",
     tableView: "Table View",
     ganttView: "Gantt View",
-    weekShort: "W"
+    weekShort: "W",
+    totalWeeks: "Total weeks",
+    clearAll: "Clear all",
+    clearConfirm: "Remove all tasks? This action cannot be undone.",
+    edit: "Edit task",
+    remove: "Remove task",
+    hidePanel: "Hide panel",
+    showPanel: "Show panel",
+    dragHint: "Drag bars to move, edges to resize and the ⠿ handle to reorder.",
   },
   es: {
     title: "Gestor de Proyectos",
     subtitle: "Crea tareas y visualiza la cronología en el gráfico de Gantt",
-    newTask: "Nueva Tarefa",
-    exportPng: "Exportar PNG",
+    newTask: "Nueva Tarea",
     tasks: "Tareas",
     ganttChart: "Gráfico de Gantt",
     noTasks: "Ninguna tarea creada aún",
@@ -65,101 +76,133 @@ const translations = {
     after: "Después",
     tableView: "Vista de Tabla",
     ganttView: "Vista de Gantt",
-    weekShort: "S"
+    weekShort: "S",
+    totalWeeks: "Semanas totales",
+    clearAll: "Limpiar todo",
+    clearConfirm: "¿Eliminar todas las tareas? Esta acción no se puede deshacer.",
+    edit: "Editar tarea",
+    remove: "Eliminar tarea",
+    hidePanel: "Ocultar panel",
+    showPanel: "Mostrar panel",
+    dragHint: "Arrastra las barras para mover, los bordes para redimensionar y el icono ⠿ para reordenar.",
   },
 }
 
-export interface Task {
-  id: string
-  name: string
-  duration: number
-  predecessor?: string
-  startWeek: number
-  endWeek: number
-  color: string
-}
+const STORAGE_KEY = "crono-gantt-tasks"
 
 export default function ProjectManager() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [language, setLanguage] = useState<Language>("pt")
   const [viewMode, setViewMode] = useState<"gantt" | "table">("gantt")
+  const [showTaskPanel, setShowTaskPanel] = useState(true)
   const ganttRef = useRef<HTMLDivElement>(null)
+  const loaded = useRef(false)
 
   const t = translations[language]
 
-  const calculateTaskSchedule = (newTasks: Task[]) => {
-    const sortedTasks = [...newTasks].sort((a, b) => {
-      if (a.predecessor && !b.predecessor) return 1
-      if (!a.predecessor && b.predecessor) return -1
-      return 0
-    })
-
-    const scheduledTasks: Task[] = []
-
-    for (const task of sortedTasks) {
-      let startWeek = 1
-
-      if (task.predecessor) {
-        const predecessorTask = scheduledTasks.find((t) => t.id === task.predecessor)
-        if (predecessorTask) {
-          startWeek = predecessorTask.endWeek + 1
-        }
-      }
-
-      const endWeek = startWeek + task.duration - 1
-      const colors = ["bg-chart-1", "bg-chart-2", "bg-primary", "bg-secondary", "bg-accent"]
-      const color = colors[scheduledTasks.length % colors.length]
-
-      scheduledTasks.push({
-        ...task,
-        startWeek,
-        endWeek,
-        color,
-      })
+  // Persistência local: o trabalho não se perde ao recarregar a página.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) setTasks(scheduleTasks(JSON.parse(saved) as Task[]))
+    } catch {
+      // storage indisponível ou conteúdo inválido — começa vazio
     }
+    loaded.current = true
+  }, [])
 
-    return scheduledTasks
-  }
+  useEffect(() => {
+    if (!loaded.current) return
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
+    } catch {
+      // ignora quota/modo privado
+    }
+  }, [tasks])
 
-  const addTask = (taskData: Omit<Task, "startWeek" | "endWeek" | "color">) => {
-    const newTasks = [...tasks, { ...taskData, startWeek: 1, endWeek: 1, color: "bg-chart-1" }]
-    const scheduledTasks = calculateTaskSchedule(newTasks)
-    setTasks(scheduledTasks)
+  const addTask = (taskData: TaskInput) => {
+    setTasks((prev) => scheduleTasks([...prev, { ...taskData, startWeek: 1, endWeek: 1, color: TASK_COLORS[0] }]))
     setShowForm(false)
   }
 
   const removeTask = (taskId: string) => {
-    const filteredTasks = tasks.filter((task) => task.id !== taskId)
-    const rescheduledTasks = calculateTaskSchedule(filteredTasks)
-    setTasks(rescheduledTasks)
+    setTasks((prev) =>
+      scheduleTasks(
+        prev
+          .filter((task) => task.id !== taskId)
+          // limpa dependências órfãs para não quebrar o cronograma
+          .map((task) => (task.predecessor === taskId ? { ...task, predecessor: undefined } : task)),
+      ),
+    )
   }
 
   const updateTask = (taskId: string, updatedData: Partial<Task>) => {
-    const updatedTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...updatedData } : task))
-    const rescheduledTasks = calculateTaskSchedule(updatedTasks)
-    setTasks(rescheduledTasks)
+    setTasks((prev) => {
+      const renamedId = updatedData.id && updatedData.id !== taskId ? updatedData.id : null
+      const next = prev.map((task) => {
+        if (task.id === taskId) return { ...task, ...updatedData }
+        // mantém as dependências apontando para o novo ID
+        if (renamedId && task.predecessor === taskId) return { ...task, predecessor: renamedId }
+        return task
+      })
+      return scheduleTasks(next)
+    })
   }
 
-  const maxWeek = Math.max(...tasks.map((task) => task.endWeek), 8)
+  /** O mesmo formulário atende criação e edição. */
+  const submitForm = (taskData: TaskInput) => {
+    if (editingTask) {
+      updateTask(editingTask.id, taskData)
+      setEditingTask(null)
+      return
+    }
+    addTask(taskData)
+  }
+
+  const closeForm = () => {
+    setShowForm(false)
+    setEditingTask(null)
+  }
+
+  const reorderTasks = (from: number, to: number) => {
+    setTasks((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return scheduleTasks(next)
+    })
+  }
+
+  const clearAll = () => {
+    if (tasks.length === 0) return
+    if (window.confirm(t.clearConfirm)) setTasks([])
+  }
+
+  const projectWeeks = getProjectWeeks(tasks)
+  const maxWeek = Math.max(projectWeeks, 8)
 
   return (
-    <div className="min-h-screen bg-background p-6 flex flex-col items-center">
-      <div className="max-w-7xl space-y-6 w-full flex-1">
-        <div className="flex items-center justify-between">
+    // Em telas grandes a altura fica presa à da janela: só o gráfico/tabela rolam
+    // internamente, e apenas quando o conteúdo passa do espaço disponível.
+    <div className="min-h-screen lg:h-screen bg-background px-6 py-4 flex flex-col items-center">
+      <div className="max-w-7xl w-full flex-1 lg:min-h-0 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-1 mb-2">
+            <div className="flex items-center gap-1">
               <Image
                 src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo.png`}   // sempre começa com "/" se estiver em public
                 alt="Logo"
-                width={50}
-                height={50}
+                width={40}
+                height={40}
               />
-              <h1 className="text-3xl font-bold text-foreground">{t.title}</h1>
+              <h1 className="text-2xl font-bold text-foreground">{t.title}</h1>
             </div>
-            <p className="text-muted-foreground">{t.subtitle}</p>
+            <p className="text-sm text-muted-foreground">{t.subtitle}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <div className="flex border rounded-lg">
               {(["pt", "en", "es"] as Language[]).map((lang) => (
                 <Button
@@ -199,79 +242,178 @@ export default function ProjectManager() {
               <Plus className="h-4 w-4" />
               {t.newTask}
             </Button>
+
+            <Button
+              onClick={clearAll}
+              variant="outline"
+              size="sm"
+              disabled={tasks.length === 0}
+              className="gap-2 text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t.clearAll}
+            </Button>
           </div>
         </div>
 
-        {/* Task Form Modal */}
-        {showForm && (
-          <TaskForm existingTasks={tasks} onSubmit={addTask} onCancel={() => setShowForm(false)} language={language} />
+        {/* Resumo do projeto */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border px-3 py-1.5">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span className="text-sm text-muted-foreground">{t.totalWeeks}:</span>
+            <span className="text-base font-bold text-foreground">{projectWeeks}</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border px-3 py-1.5">
+            <span className="text-sm text-muted-foreground">{t.tasks}:</span>
+            <span className="text-base font-bold text-foreground">{tasks.length}</span>
+          </div>
+          {viewMode === "gantt" && tasks.length > 0 && (
+            <p className="text-xs text-muted-foreground">{t.dragHint}</p>
+          )}
+        </div>
+
+        {/* Task Form Modal — criação e edição */}
+        {(showForm || editingTask) && (
+          <TaskForm
+            key={editingTask?.id ?? "new"}
+            existingTasks={tasks}
+            task={editingTask ?? undefined}
+            onSubmit={submitForm}
+            onCancel={closeForm}
+            language={language}
+          />
         )}
 
         {viewMode === "table" ? (
-          <TaskTable tasks={tasks} onUpdateTask={updateTask} onRemoveTask={removeTask} onAddTask={addTask} language={language} />
+          <TaskTable
+            tasks={tasks}
+            onUpdateTask={updateTask}
+            onRemoveTask={removeTask}
+            onAddTask={addTask}
+            onReorder={reorderTasks}
+            projectWeeks={projectWeeks}
+            language={language}
+          />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          // items-start: os cards têm a altura do conteúdo; o teto vem do max-h-full.
+          <div
+            className={`grid grid-cols-1 gap-4 flex-1 lg:min-h-0 lg:items-start ${
+              showTaskPanel ? "lg:grid-cols-4" : "lg:grid-cols-1"
+            }`}
+          >
             {/* Tasks List */}
-            <div className="lg:col-span-1">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5" />
-                    {t.tasks} ({tasks.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 max-h-104 overflow-y-auto">
-                  {tasks.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">{t.noTasks}</p>
-                  ) : (
-                    <div className="space-y-2 pl-2">
-                      {tasks.map((task) => (
-                        <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <div className={`w-3 h-3 rounded ${task.color}`} />
-                              <span className="font-medium text-sm">{task.name}</span>
+            {showTaskPanel && (
+              <div className="lg:col-span-1 lg:max-h-full lg:min-h-0 lg:flex lg:flex-col">
+                <Card className="py-4 gap-3 lg:min-h-0 lg:flex lg:flex-col">
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2">
+                        <Calendar className="h-5 w-5" />
+                        {t.tasks} ({tasks.length})
+                      </span>
+                      <Button
+                        onClick={() => setShowTaskPanel(false)}
+                        variant="ghost"
+                        size="sm"
+                        title={t.hidePanel}
+                        className="h-8 w-8 p-0"
+                      >
+                        <PanelLeftClose className="h-4 w-4" />
+                      </Button>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 overflow-y-auto max-h-96 lg:max-h-none lg:min-h-0">
+                    {tasks.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">{t.noTasks}</p>
+                    ) : (
+                      <div className="space-y-2 pl-2">
+                        {tasks.map((task) => (
+                          <div key={task.id} className="p-3 border rounded-lg flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`w-3 h-3 rounded shrink-0 ${task.color}`} />
+                                <span className="font-medium text-sm truncate">{task.name}</span>
+                              </div>
+                              <div className="text-xs text-muted-foreground space-y-1">
+                                <div>ID: {task.id}</div>
+                                <div>
+                                  {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
+                                </div>
+                                <div>
+                                  {t.period}: {t.weekShort}
+                                  {task.startWeek} - {t.weekShort}
+                                  {task.endWeek}
+                                </div>
+                                {task.predecessor && (
+                                  <div>
+                                    {t.after}: {task.predecessor}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="text-xs text-muted-foreground space-y-1">
-                              <div>ID: {task.id}</div>
-                              <div>
-                                {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
-                              </div>
-                              <div>
-                                {t.period}: {t.weekShort}{task.startWeek} - {t.weekShort}{task.endWeek}
-                              </div>
-                              {task.predecessor && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {t.after}: {task.predecessor}
-                                </Badge>
-                              )}
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <Button
+                                onClick={() => setEditingTask(task)}
+                                variant="ghost"
+                                size="sm"
+                                title={t.edit}
+                                className="h-7 w-7 p-0"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                onClick={() => removeTask(task.id)}
+                                variant="ghost"
+                                size="sm"
+                                title={t.remove}
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </div>
                           </div>
-                          <Button
-                            onClick={() => removeTask(task.id)}
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Gantt Chart */}
-            <div className="lg:col-span-3">
-              <Card>
+            <div
+              className={`lg:max-h-full lg:min-h-0 lg:flex lg:flex-col ${
+                showTaskPanel ? "lg:col-span-3" : "lg:col-span-1"
+              }`}
+            >
+              <Card className="py-4 gap-3 lg:min-h-0 lg:flex lg:flex-col">
                 <CardHeader>
-                  <CardTitle>{t.ganttChart}</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    {!showTaskPanel && (
+                      <Button
+                        onClick={() => setShowTaskPanel(true)}
+                        variant="ghost"
+                        size="sm"
+                        title={t.showPanel}
+                        className="h-8 w-8 p-0"
+                      >
+                        <PanelLeftOpen className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {t.ganttChart}
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div ref={ganttRef}>
-                    <GanttChart tasks={tasks} maxWeeks={maxWeek} language={language} />
+                <CardContent className="lg:min-h-0 lg:flex lg:flex-col">
+                  <div ref={ganttRef} className="lg:min-h-0 lg:flex lg:flex-col">
+                    <GanttChart
+                      tasks={tasks}
+                      maxWeeks={maxWeek}
+                      projectWeeks={projectWeeks}
+                      language={language}
+                      onUpdateTask={updateTask}
+                      onRemoveTask={removeTask}
+                      onReorder={reorderTasks}
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -280,7 +422,7 @@ export default function ProjectManager() {
         )}
       </div>
 
-      <div className="mt-1 py-6 flex flex-row justify-end items-end w-full">
+      <div className="pt-3 flex flex-row justify-end items-end w-full">
         <Image
           src={`${process.env.NEXT_PUBLIC_BASE_PATH}/paragon.png`}  // sempre começa com "/" se estiver em public
           alt="Paragon"

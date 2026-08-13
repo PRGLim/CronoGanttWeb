@@ -1,12 +1,12 @@
 "use client"
 
+import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Trash2, Edit, Check, X, Plus } from "lucide-react"
-import type { Task } from "@/app/page"
+import { Trash2, Check, X, Plus, GripVertical, ChevronUp, ChevronDown } from "lucide-react"
+import type { Task, TaskInput } from "@/lib/schedule"
 
 type Language = "pt" | "en" | "es"
 
@@ -16,7 +16,7 @@ const translations = {
     name: "Nome",
     duration: "Duração",
     predecessor: "Predecessor",
-    phase: "Fase",
+    lag: "Folga",
     startWeek: "Início",
     endWeek: "Fim",
     actions: "Ações",
@@ -28,13 +28,21 @@ const translations = {
     invalidPredecessor: "ID predecessor inválido",
     duplicateId: "ID já existe",
     requiredFields: "Preencha todos os campos obrigatórios",
+    title: "Tabela de Tarefas",
+    total: "TOTAL DO PROJETO",
+    totalWeeks: "semanas",
+    none: "Nenhum",
+    reorder: "Arraste para reordenar",
+    moveUp: "Mover para cima",
+    moveDown: "Mover para baixo",
+    editHint: "Edite qualquer campo diretamente na tabela. Arraste ⠿ para reordenar.",
   },
   en: {
     id: "ID",
     name: "Name",
     duration: "Duration",
     predecessor: "Predecessor",
-    phase: "Phase",
+    lag: "Lag",
     startWeek: "Start",
     endWeek: "End",
     actions: "Actions",
@@ -46,13 +54,21 @@ const translations = {
     invalidPredecessor: "Invalid predecessor ID",
     duplicateId: "ID already exists",
     requiredFields: "Fill all required fields",
+    title: "Task Table",
+    total: "PROJECT TOTAL",
+    totalWeeks: "weeks",
+    none: "None",
+    reorder: "Drag to reorder",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    editHint: "Edit any field directly in the table. Drag ⠿ to reorder.",
   },
   es: {
     id: "ID",
     name: "Nombre",
     duration: "Duración",
     predecessor: "Predecesor",
-    phase: "Fase",
+    lag: "Holgura",
     startWeek: "Inicio",
     endWeek: "Fin",
     actions: "Acciones",
@@ -64,6 +80,14 @@ const translations = {
     invalidPredecessor: "ID predecesor inválido",
     duplicateId: "ID ya existe",
     requiredFields: "Complete todos los campos obligatorios",
+    title: "Tabla de Tareas",
+    total: "TOTAL DEL PROYECTO",
+    totalWeeks: "semanas",
+    none: "Ninguno",
+    reorder: "Arrastra para reordenar",
+    moveUp: "Mover arriba",
+    moveDown: "Mover abajo",
+    editHint: "Edita cualquier campo directamente en la tabla. Arrastra ⠿ para reordenar.",
   },
 }
 
@@ -71,88 +95,63 @@ interface TaskTableProps {
   tasks: Task[]
   onUpdateTask: (taskId: string, updatedData: Partial<Task>) => void
   onRemoveTask: (taskId: string) => void
-  onAddTask: (newTask: Task) => void
+  onAddTask: (newTask: TaskInput) => void
+  onReorder: (from: number, to: number) => void
+  projectWeeks: number
   language: Language
 }
 
-export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, language }: TaskTableProps) {
-  const [editingTask, setEditingTask] = useState<string | null>(null)
-  const [editData, setEditData] = useState<Partial<Task>>({})
-  const [newTask, setNewTask] = useState<Partial<Task>>({})
+export function TaskTable({
+  tasks,
+  onUpdateTask,
+  onRemoveTask,
+  onAddTask,
+  onReorder,
+  projectWeeks,
+  language,
+}: TaskTableProps) {
+  const [newTask, setNewTask] = useState<Partial<TaskInput>>({})
   const [showNewTaskRow, setShowNewTaskRow] = useState(false)
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+  /** Rascunho do ID em edição — só é aplicado ao sair do campo, para não renomear a cada tecla. */
+  const [idDraft, setIdDraft] = useState<{ taskId: string; value: string } | null>(null)
 
   const t = translations[language]
 
-  const validatePredecessor = (predecessorId: string | undefined, currentTaskId?: string): boolean => {
-    if (!predecessorId || predecessorId.trim() === "") return true
+  const commitId = () => {
+    if (!idDraft) return
+    const value = idDraft.value.trim()
+    const isDuplicate = tasks.some((task) => task.id === value && task.id !== idDraft.taskId)
 
-    const existingTask = tasks.find((task) => task.id === predecessorId.trim())
-    if (!existingTask) return false
-
-    if (currentTaskId && predecessorId.trim() === currentTaskId) return false
-
-    return true
-  }
-
-  const validateUniqueId = (id: string, currentTaskId?: string): boolean => {
-    if (!id || id.trim() === "") return false
-
-    const existingTask = tasks.find((task) => task.id === id.trim())
-    if (!existingTask) return true
-
-    return currentTaskId === id.trim()
-  }
-
-  const startEdit = (task: Task) => {
-    setEditingTask(task.id)
-    setEditData({
-      name: task.name,
-      duration: task.duration,
-      predecessor: task.predecessor,
-    })
-    setErrors({})
-  }
-
-  const saveEdit = () => {
-    if (editingTask && editData) {
-      const newErrors: { [key: string]: string } = {}
-
-      if (editData.predecessor && !validatePredecessor(editData.predecessor, editingTask)) {
-        newErrors.predecessor = t.invalidPredecessor
-      }
-
-      if (Object.keys(newErrors).length > 0) {
-        setErrors(newErrors)
-        return
-      }
-
-      onUpdateTask(editingTask, editData)
-      setEditingTask(null)
-      setEditData({})
+    if (!value || isDuplicate) {
+      setErrors(isDuplicate ? { id: t.duplicateId } : {})
+    } else if (value !== idDraft.taskId) {
+      onUpdateTask(idDraft.taskId, { id: value })
       setErrors({})
     }
+    setIdDraft(null)
   }
 
-  const cancelEdit = () => {
-    setEditingTask(null)
-    setEditData({})
-    setErrors({})
+  const handleIdKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      e.currentTarget.blur()
+    } else if (e.key === "Escape") {
+      e.preventDefault()
+      setIdDraft(null)
+    }
   }
 
   const addNewTask = () => {
     const newErrors: { [key: string]: string } = {}
 
-    if (!newTask.id || !newTask.name || !newTask.duration) {
+    if (!newTask.id?.trim() || !newTask.name?.trim() || !newTask.duration) {
       newErrors.general = t.requiredFields
     }
-
-    if (newTask.id && !validateUniqueId(newTask.id)) {
+    if (newTask.id && tasks.some((task) => task.id === newTask.id!.trim())) {
       newErrors.id = t.duplicateId
-    }
-
-    if (newTask.predecessor && !validatePredecessor(newTask.predecessor)) {
-      newErrors.predecessor = t.invalidPredecessor
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -160,40 +159,49 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
       return
     }
 
-    if (newTask.id && newTask.name && newTask.duration) {
-      const taskToAdd = {
-        id: newTask.id,
-        name: newTask.name,
-        duration: newTask.duration,
-        predecessor: newTask.predecessor,
-        startWeek: 1,
-        endWeek: 1,
-        color: "bg-chart-1",
-      } as Task
-
-      onAddTask(taskToAdd)
-      setNewTask({})
-      setShowNewTaskRow(false)
-      setErrors({})
-    }
+    onAddTask({
+      id: newTask.id!.trim(),
+      name: newTask.name!.trim(),
+      duration: Math.max(1, newTask.duration!),
+      predecessor: newTask.predecessor || undefined,
+      lag: 0,
+    })
+    setNewTask({})
+    setShowNewTaskRow(false)
+    setErrors({})
   }
 
-  const getAvailablePredecessors = (currentTaskId?: string) => {
-    return tasks.filter((task) => task.id !== currentTaskId).map((task) => task.id)
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (dragIndex === null) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    setDropIndex(index)
+  }
+
+  const handleDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (dragIndex !== null) onReorder(dragIndex, index)
+    setDragIndex(null)
+    setDropIndex(null)
   }
 
   return (
-    <Card>
+    <Card className="py-4 gap-3 lg:max-h-full lg:min-h-0 lg:flex lg:flex-col">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Tabela de Tarefas ({tasks.length})</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>
+              {t.title} ({tasks.length})
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t.editHint}</p>
+          </div>
           <Button onClick={() => setShowNewTaskRow(true)} size="sm" className="gap-2">
             <Plus className="h-4 w-4" />
             {t.addTask}
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="lg:min-h-0 lg:flex lg:flex-col">
         {Object.keys(errors).length > 0 && (
           <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
             {Object.entries(errors).map(([key, message]) => (
@@ -207,116 +215,152 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
         {tasks.length === 0 && !showNewTaskRow ? (
           <p className="text-muted-foreground text-center py-8">{t.noTasks}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-auto lg:min-h-0">
             <table className="w-full border-collapse">
-              <thead>
+              <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b">
+                  <th className="w-8 p-2" />
                   <th className="text-left p-3 font-medium">{t.id}</th>
                   <th className="text-left p-3 font-medium">{t.name}</th>
                   <th className="text-left p-3 font-medium">{t.duration}</th>
                   <th className="text-left p-3 font-medium">{t.predecessor}</th>
-                  {/* <th className="text-left p-3 font-medium">{t.phase}</th> */}
+                  <th className="text-left p-3 font-medium">{t.lag}</th>
                   <th className="text-left p-3 font-medium">{t.startWeek}</th>
                   <th className="text-left p-3 font-medium">{t.endWeek}</th>
                   <th className="text-left p-3 font-medium">{t.actions}</th>
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task) => (
-                  <tr key={task.id} className="border-b hover:bg-muted/50">
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded ${task.color}`} />
-                        {task.id}
+                {tasks.map((task, index) => (
+                  <tr
+                    key={task.id}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                    className={`border-b hover:bg-muted/50 ${dragIndex === index ? "opacity-40" : ""} ${
+                      dropIndex === index && dragIndex !== null && dragIndex !== index ? "border-t-2 border-t-primary" : ""
+                    }`}
+                  >
+                    <td className="p-2">
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move"
+                          setDragIndex(index)
+                        }}
+                        onDragEnd={() => {
+                          setDragIndex(null)
+                          setDropIndex(null)
+                        }}
+                        title={t.reorder}
+                        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+                      >
+                        <GripVertical className="h-4 w-4" />
                       </div>
                     </td>
+
                     <td className="p-3">
-                      {editingTask === task.id ? (
+                      <div className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded shrink-0 ${task.color}`} />
                         <Input
-                          value={editData.name || ""}
-                          onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                          className="h-8"
+                          value={idDraft?.taskId === task.id ? idDraft.value : task.id}
+                          onChange={(e) => setIdDraft({ taskId: task.id, value: e.target.value })}
+                          onFocus={() => setIdDraft({ taskId: task.id, value: task.id })}
+                          onBlur={commitId}
+                          onKeyDown={handleIdKeyDown}
+                          className="h-8 w-24"
                         />
-                      ) : (
-                        task.name
-                      )}
+                      </div>
                     </td>
+
                     <td className="p-3">
-                      {editingTask === task.id ? (
-                        <Input
-                          type="number"
-                          value={editData.duration || ""}
-                          onChange={(e) => setEditData({ ...editData, duration: Number.parseInt(e.target.value) })}
-                          className="h-8 w-20"
-                        />
-                      ) : (
-                        `${task.duration} ${task.duration > 1 ? t.weeks : t.week}`
-                      )}
+                      <Input
+                        value={task.name}
+                        onChange={(e) => onUpdateTask(task.id, { name: e.target.value })}
+                        className="h-8 min-w-40"
+                      />
                     </td>
+
                     <td className="p-3">
-                      {editingTask === task.id ? (
-                        <div className="relative">
-                          <Input
-                            value={editData.predecessor || ""}
-                            onChange={(e) => setEditData({ ...editData, predecessor: e.target.value || undefined })}
-                            className={`h-8 ${errors.predecessor ? "border-destructive" : ""}`}
-                            placeholder="-"
-                            list={`predecessors-${task.id}`}
-                          />
-                          <datalist id={`predecessors-${task.id}`}>
-                            {getAvailablePredecessors(task.id).map((id) => (
-                              <option key={id} value={id} />
-                            ))}
-                          </datalist>
-                        </div>
-                      ) : task.predecessor ? (
-                        <Badge variant="secondary">{task.predecessor}</Badge>
-                      ) : (
-                        "-"
-                      )}
+                      <Input
+                        type="number"
+                        min={1}
+                        value={task.duration}
+                        onChange={(e) => {
+                          const duration = Number.parseInt(e.target.value, 10)
+                          if (Number.isFinite(duration) && duration > 0) onUpdateTask(task.id, { duration })
+                        }}
+                        className="h-8 w-20"
+                      />
                     </td>
-                    {/* <td className="p-3">
-                      {editingTask === task.id ? (
-                        <Input
-                          value={editData.phase || ""}
-                          onChange={(e) => setEditData({ ...editData, phase: e.target.value || undefined })}
-                          className="h-8"
-                          placeholder="-"
-                        />
-                      ) : task.phase ? (
-                        <Badge variant="outline">{task.phase}</Badge>
-                      ) : (
-                        "-"
-                      )}
-                    </td> */}
-                    <td className="p-3">{t.weekShort}{task.startWeek}</td>
-                    <td className="p-3">{t.weekShort}{task.endWeek}</td>
+
+                    <td className="p-3">
+                      <select
+                        value={task.predecessor ?? ""}
+                        onChange={(e) => onUpdateTask(task.id, { predecessor: e.target.value || undefined, lag: 0 })}
+                        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                      >
+                        <option value="">{t.none}</option>
+                        {tasks
+                          .filter((other) => other.id !== task.id)
+                          .map((other) => (
+                            <option key={other.id} value={other.id}>
+                              {other.id}
+                            </option>
+                          ))}
+                      </select>
+                    </td>
+
+                    <td className="p-3">
+                      <Input
+                        type="number"
+                        value={task.lag ?? 0}
+                        onChange={(e) => {
+                          const lag = Number.parseInt(e.target.value, 10)
+                          onUpdateTask(task.id, { lag: Number.isFinite(lag) ? lag : 0 })
+                        }}
+                        className="h-8 w-20"
+                      />
+                    </td>
+
+                    <td className="p-3 whitespace-nowrap">
+                      {t.weekShort}
+                      {task.startWeek}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {t.weekShort}
+                      {task.endWeek}
+                    </td>
+
                     <td className="p-3">
                       <div className="flex gap-1">
-                        {editingTask === task.id ? (
-                          <>
-                            <Button onClick={saveEdit} size="sm" variant="ghost" className="h-8 w-8 p-0">
-                              <Check className="h-4 w-4 text-green-600" />
-                            </Button>
-                            <Button onClick={cancelEdit} size="sm" variant="ghost" className="h-8 w-8 p-0">
-                              <X className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button onClick={() => startEdit(task)} size="sm" variant="ghost" className="h-8 w-8 p-0">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              onClick={() => onRemoveTask(task.id)}
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
+                        <Button
+                          onClick={() => onReorder(index, index - 1)}
+                          disabled={index === 0}
+                          size="sm"
+                          variant="ghost"
+                          title={t.moveUp}
+                          className="h-8 w-8 p-0"
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          onClick={() => onReorder(index, index + 1)}
+                          disabled={index === tasks.length - 1}
+                          size="sm"
+                          variant="ghost"
+                          title={t.moveDown}
+                          className="h-8 w-8 p-0"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          onClick={() => onRemoveTask(task.id)}
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -324,12 +368,15 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
 
                 {showNewTaskRow && (
                   <tr className="border-b bg-muted/20">
+                    <td className="p-2" />
                     <td className="p-3">
                       <Input
+                        autoFocus
                         placeholder="ID"
                         value={newTask.id || ""}
                         onChange={(e) => setNewTask({ ...newTask, id: e.target.value })}
-                        className={`h-8 ${errors.id ? "border-destructive" : ""}`}
+                        onKeyDown={(e) => e.key === "Enter" && addNewTask()}
+                        className={`h-8 w-24 ${errors.id ? "border-destructive" : ""}`}
                       />
                     </td>
                     <td className="p-3">
@@ -337,42 +384,36 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                         placeholder={t.name}
                         value={newTask.name || ""}
                         onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
-                        className="h-8"
+                        onKeyDown={(e) => e.key === "Enter" && addNewTask()}
+                        className="h-8 min-w-40"
                       />
                     </td>
                     <td className="p-3">
                       <Input
                         type="number"
+                        min={1}
                         placeholder="1"
                         value={newTask.duration || ""}
-                        onChange={(e) => setNewTask({ ...newTask, duration: Number.parseInt(e.target.value) })}
+                        onChange={(e) => setNewTask({ ...newTask, duration: Number.parseInt(e.target.value, 10) })}
+                        onKeyDown={(e) => e.key === "Enter" && addNewTask()}
                         className="h-8 w-20"
                       />
                     </td>
                     <td className="p-3">
-                      <div className="relative">
-                        <Input
-                          placeholder="-"
-                          value={newTask.predecessor || ""}
-                          onChange={(e) => setNewTask({ ...newTask, predecessor: e.target.value || undefined })}
-                          className={`h-8 ${errors.predecessor ? "border-destructive" : ""}`}
-                          list="new-task-predecessors"
-                        />
-                        <datalist id="new-task-predecessors">
-                          {tasks.map((task) => (
-                            <option key={task.id} value={task.id} />
-                          ))}
-                        </datalist>
-                      </div>
+                      <select
+                        value={newTask.predecessor ?? ""}
+                        onChange={(e) => setNewTask({ ...newTask, predecessor: e.target.value || undefined })}
+                        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                      >
+                        <option value="">{t.none}</option>
+                        {tasks.map((task) => (
+                          <option key={task.id} value={task.id}>
+                            {task.id}
+                          </option>
+                        ))}
+                      </select>
                     </td>
-                    {/* <td className="p-3">
-                      <Input
-                        placeholder="Fase"
-                        value={newTask.phase || ""}
-                        onChange={(e) => setNewTask({ ...newTask, phase: e.target.value || undefined })}
-                        className="h-8"
-                      />
-                    </td> */}
+                    <td className="p-3">-</td>
                     <td className="p-3">-</td>
                     <td className="p-3">-</td>
                     <td className="p-3">
@@ -384,6 +425,7 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                           onClick={() => {
                             setShowNewTaskRow(false)
                             setNewTask({})
+                            setErrors({})
                           }}
                           size="sm"
                           variant="ghost"
@@ -396,6 +438,28 @@ export function TaskTable({ tasks, onUpdateTask, onRemoveTask, onAddTask, langua
                   </tr>
                 )}
               </tbody>
+
+              {/* Linha de total do projeto */}
+              {tasks.length > 0 && (
+                <tfoot className="sticky bottom-0 bg-card z-10">
+                  <tr className="border-t-2 border-primary bg-muted/30 font-bold">
+                    <td className="p-2" />
+                    <td className="p-3" colSpan={5}>
+                      {t.total}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {t.weekShort}1
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {t.weekShort}
+                      {projectWeeks}
+                    </td>
+                    <td className="p-3 whitespace-nowrap text-primary">
+                      {projectWeeks} {t.totalWeeks}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         )}
