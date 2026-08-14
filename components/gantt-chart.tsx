@@ -3,7 +3,14 @@
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import type { Task } from "@/lib/schedule"
-import { formatUnit, getColumnScales, getUnitLabels, type ColumnScale, type TimeUnit } from "@/lib/time-unit"
+import {
+  formatUnit,
+  getColumnScales,
+  getUnitLabels,
+  periodsPerWeek,
+  type ColumnScale,
+  type TimeUnit,
+} from "@/lib/time-unit"
 import { toPng } from "html-to-image"
 import Image from "next/image"
 import ExcelJS from "exceljs"
@@ -163,7 +170,8 @@ export function GanttChart({
   /** Com colunas estreitas só um rótulo a cada N aparece — o resto vira só grade. */
   const labelEvery = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / cellWidth))
   /** Em dias sem agrupamento, marca o fim de cada semana para dar ritmo à régua. */
-  const isBlockEdge = (column: number) => span === 1 && timeUnit === "days" && column % 7 === 0
+  const perWeek = periodsPerWeek(timeUnit)
+  const isBlockEdge = (column: number) => span === 1 && perWeek > 1 && column % perWeek === 0
   /** Primeiro e último período de uma coluna, para o tooltip das colunas agrupadas. */
   const columnRange = (column: number) => {
     const first = (column - 1) * span + 1

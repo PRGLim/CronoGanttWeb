@@ -56,24 +56,28 @@ export interface ColumnScale {
 
 const MONTH_LABEL: Record<Language, string> = { pt: "Meses", en: "Months", es: "Meses" }
 
+/** Os dias do cronograma são úteis: a semana fecha em 5. */
+export const DAYS_PER_WEEK = 5
+/** Um mês é contado como 4 semanas — 4 colunas em semanas, 20 em dias úteis. */
+export const WEEKS_PER_MONTH = 4
+
+/** Quantos períodos da unidade cabem em uma semana. */
+export function periodsPerWeek(unit: TimeUnit): number {
+  return unit === "days" ? DAYS_PER_WEEK : 1
+}
+
 /** Da mais detalhada para a mais resumida. A primeira é o padrão da unidade. */
 export function getColumnScales(language: Language, unit: TimeUnit): ColumnScale[] {
   const week = LABELS[language].weeks
   const day = LABELS[language].days
   const month = { short: "M", label: MONTH_LABEL[language] }
+  const perWeek = periodsPerWeek(unit)
 
-  if (unit === "days") {
-    return [
-      { span: 1, short: day.short, label: day.label },
-      { span: 7, short: week.short, label: week.label },
-      { span: 30, ...month },
-    ]
-  }
+  const scales: ColumnScale[] = [{ span: perWeek, short: week.short, label: week.label }]
+  if (unit === "days") scales.unshift({ span: 1, short: day.short, label: day.label })
+  scales.push({ span: perWeek * WEEKS_PER_MONTH, ...month })
 
-  return [
-    { span: 1, short: week.short, label: week.label },
-    { span: 4, ...month },
-  ]
+  return scales
 }
 
 /** "3 semanas" / "1 semana" */
