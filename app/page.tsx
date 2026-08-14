@@ -1,13 +1,27 @@
 "use client"
 
+import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, Calendar, Table, Trash2, Pencil, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+import {
+  Plus,
+  Calendar,
+  Table,
+  Trash2,
+  Pencil,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Upload,
+  Download,
+  LayoutTemplate,
+} from "lucide-react"
 import { GanttChart } from "@/components/gantt-chart"
 import { TaskForm } from "@/components/task-form"
 import { TaskTable } from "@/components/task-table"
 import { scheduleTasks, TASK_COLORS, getProjectWeeks, type Task, type TaskInput } from "@/lib/schedule"
+import { createTemplateTasks, exportProjectJson, parseProjectJson } from "@/lib/project-file"
+import { getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 import Image from "next/image"
 
 
@@ -22,14 +36,11 @@ const translations = {
     ganttChart: "Gráfico de Gantt",
     noTasks: "Nenhuma tarefa criada ainda",
     duration: "Duração",
-    week: "semana",
-    weeks: "semanas",
     period: "Período",
     after: "Após",
     tableView: "Visualização em Tabela",
     ganttView: "Visualização em Gantt",
-    weekShort: "S",
-    totalWeeks: "Semanas totais",
+    totalDuration: "Duração total",
     clearAll: "Limpar tudo",
     clearConfirm: "Remover todas as tarefas? Esta ação não pode ser desfeita.",
     edit: "Editar tarefa",
@@ -37,6 +48,13 @@ const translations = {
     hidePanel: "Ocultar painel",
     showPanel: "Mostrar painel",
     dragHint: "Arraste as barras para mover, as bordas para redimensionar e o ícone ⠿ para reordenar.",
+    importJson: "Importar JSON",
+    exportJson: "Salvar JSON",
+    template: "Template",
+    templateTitle: "Gerar cronograma modelo",
+    templateConfirm: "Gerar o template substitui as tarefas atuais. Continuar?",
+    importConfirm: "Importar substitui as tarefas atuais. Continuar?",
+    importError: "Não foi possível ler o arquivo: não parece um cronograma válido.",
   },
   en: {
     title: "Project Manager",
@@ -46,14 +64,11 @@ const translations = {
     ganttChart: "Gantt Chart",
     noTasks: "No tasks created yet",
     duration: "Duration",
-    week: "week",
-    weeks: "weeks",
     period: "Period",
     after: "After",
     tableView: "Table View",
     ganttView: "Gantt View",
-    weekShort: "W",
-    totalWeeks: "Total weeks",
+    totalDuration: "Total duration",
     clearAll: "Clear all",
     clearConfirm: "Remove all tasks? This action cannot be undone.",
     edit: "Edit task",
@@ -61,6 +76,13 @@ const translations = {
     hidePanel: "Hide panel",
     showPanel: "Show panel",
     dragHint: "Drag bars to move, edges to resize and the ⠿ handle to reorder.",
+    importJson: "Import JSON",
+    exportJson: "Save JSON",
+    template: "Template",
+    templateTitle: "Generate template schedule",
+    templateConfirm: "Generating the template replaces the current tasks. Continue?",
+    importConfirm: "Importing replaces the current tasks. Continue?",
+    importError: "Could not read the file: it does not look like a valid schedule.",
   },
   es: {
     title: "Gestor de Proyectos",
@@ -70,14 +92,11 @@ const translations = {
     ganttChart: "Gráfico de Gantt",
     noTasks: "Ninguna tarea creada aún",
     duration: "Duración",
-    week: "semana",
-    weeks: "semanas",
     period: "Período",
     after: "Después",
     tableView: "Vista de Tabla",
     ganttView: "Vista de Gantt",
-    weekShort: "S",
-    totalWeeks: "Semanas totales",
+    totalDuration: "Duración total",
     clearAll: "Limpiar todo",
     clearConfirm: "¿Eliminar todas las tareas? Esta acción no se puede deshacer.",
     edit: "Editar tarea",
@@ -85,10 +104,18 @@ const translations = {
     hidePanel: "Ocultar panel",
     showPanel: "Mostrar panel",
     dragHint: "Arrastra las barras para mover, los bordes para redimensionar y el icono ⠿ para reordenar.",
+    importJson: "Importar JSON",
+    exportJson: "Guardar JSON",
+    template: "Plantilla",
+    templateTitle: "Generar cronograma modelo",
+    templateConfirm: "Generar la plantilla reemplaza las tareas actuales. ¿Continuar?",
+    importConfirm: "Importar reemplaza las tareas actuales. ¿Continuar?",
+    importError: "No se pudo leer el archivo: no parece un cronograma válido.",
   },
 }
 
 const STORAGE_KEY = "crono-gantt-tasks"
+const UNIT_STORAGE_KEY = "crono-gantt-unit"
 
 export default function ProjectManager() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -97,16 +124,21 @@ export default function ProjectManager() {
   const [language, setLanguage] = useState<Language>("pt")
   const [viewMode, setViewMode] = useState<"gantt" | "table">("gantt")
   const [showTaskPanel, setShowTaskPanel] = useState(true)
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("weeks")
   const ganttRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const loaded = useRef(false)
 
   const t = translations[language]
+  const units = getUnitLabels(language, timeUnit)
 
   // Persistência local: o trabalho não se perde ao recarregar a página.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) setTasks(scheduleTasks(JSON.parse(saved) as Task[]))
+      const savedUnit = localStorage.getItem(UNIT_STORAGE_KEY)
+      if (savedUnit === "weeks" || savedUnit === "days") setTimeUnit(savedUnit)
     } catch {
       // storage indisponível ou conteúdo inválido — começa vazio
     }
@@ -117,10 +149,11 @@ export default function ProjectManager() {
     if (!loaded.current) return
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
+      localStorage.setItem(UNIT_STORAGE_KEY, timeUnit)
     } catch {
       // ignora quota/modo privado
     }
-  }, [tasks])
+  }, [tasks, timeUnit])
 
   const addTask = (taskData: TaskInput) => {
     setTasks((prev) => scheduleTasks([...prev, { ...taskData, startWeek: 1, endWeek: 1, color: TASK_COLORS[0] }]))
@@ -181,6 +214,29 @@ export default function ProjectManager() {
     if (window.confirm(t.clearConfirm)) setTasks([])
   }
 
+  /* ------------------------------------------------- arquivo JSON e template */
+
+  const generateTemplate = () => {
+    if (tasks.length > 0 && !window.confirm(t.templateConfirm)) return
+    setTasks(createTemplateTasks(language))
+  }
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Limpa o input para que escolher o mesmo arquivo de novo dispare o evento.
+    event.target.value = ""
+    if (!file) return
+    if (tasks.length > 0 && !window.confirm(t.importConfirm)) return
+
+    try {
+      const data = parseProjectJson(await file.text())
+      setTasks(data.tasks)
+      setTimeUnit(data.timeUnit)
+    } catch {
+      window.alert(t.importError)
+    }
+  }
+
   const projectWeeks = getProjectWeeks(tasks)
   const maxWeek = Math.max(projectWeeks, 8)
 
@@ -217,6 +273,21 @@ export default function ProjectManager() {
               ))}
             </div>
 
+            {/* Unidade exibida — só troca os rótulos, os valores continuam iguais */}
+            <div className="flex border rounded-lg">
+              {(["weeks", "days"] as TimeUnit[]).map((unit) => (
+                <Button
+                  key={unit}
+                  onClick={() => setTimeUnit(unit)}
+                  variant={timeUnit === unit ? "default" : "ghost"}
+                  size="sm"
+                  className="rounded-none first:rounded-l-lg last:rounded-r-lg"
+                >
+                  {getUnitLabels(language, unit).label}
+                </Button>
+              ))}
+            </div>
+
             <div className="flex border rounded-lg">
               <Button
                 onClick={() => setViewMode("gantt")}
@@ -243,6 +314,34 @@ export default function ProjectManager() {
               {t.newTask}
             </Button>
 
+            <Button onClick={generateTemplate} variant="outline" size="sm" title={t.templateTitle} className="gap-2">
+              <LayoutTemplate className="h-4 w-4" />
+              {t.template}
+            </Button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+            <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" className="gap-2">
+              <Upload className="h-4 w-4" />
+              {t.importJson}
+            </Button>
+
+            <Button
+              onClick={() => exportProjectJson({ tasks, timeUnit })}
+              variant="outline"
+              size="sm"
+              disabled={tasks.length === 0}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              {t.exportJson}
+            </Button>
+
             <Button
               onClick={clearAll}
               variant="outline"
@@ -260,8 +359,10 @@ export default function ProjectManager() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border px-3 py-1.5">
             <Calendar className="h-4 w-4 text-primary" />
-            <span className="text-sm text-muted-foreground">{t.totalWeeks}:</span>
-            <span className="text-base font-bold text-foreground">{projectWeeks}</span>
+            <span className="text-sm text-muted-foreground">{t.totalDuration}:</span>
+            <span className="text-base font-bold text-foreground">
+              {projectWeeks} {projectWeeks === 1 ? units.one : units.many}
+            </span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border px-3 py-1.5">
             <span className="text-sm text-muted-foreground">{t.tasks}:</span>
@@ -281,6 +382,7 @@ export default function ProjectManager() {
             onSubmit={submitForm}
             onCancel={closeForm}
             language={language}
+            timeUnit={timeUnit}
           />
         )}
 
@@ -293,6 +395,7 @@ export default function ProjectManager() {
             onReorder={reorderTasks}
             projectWeeks={projectWeeks}
             language={language}
+            timeUnit={timeUnit}
           />
         ) : (
           // items-start: os cards têm a altura do conteúdo; o teto vem do max-h-full.
@@ -337,11 +440,11 @@ export default function ProjectManager() {
                               <div className="text-xs text-muted-foreground space-y-1">
                                 <div>ID: {task.id}</div>
                                 <div>
-                                  {t.duration}: {task.duration} {task.duration > 1 ? t.weeks : t.week}
+                                  {t.duration}: {task.duration} {task.duration === 1 ? units.one : units.many}
                                 </div>
                                 <div>
-                                  {t.period}: {t.weekShort}
-                                  {task.startWeek} - {t.weekShort}
+                                  {t.period}: {units.short}
+                                  {task.startWeek} - {units.short}
                                   {task.endWeek}
                                 </div>
                                 {task.predecessor && (
@@ -410,6 +513,7 @@ export default function ProjectManager() {
                       maxWeeks={maxWeek}
                       projectWeeks={projectWeeks}
                       language={language}
+                      timeUnit={timeUnit}
                       onUpdateTask={updateTask}
                       onRemoveTask={removeTask}
                       onReorder={reorderTasks}

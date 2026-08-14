@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Check, X, Plus, GripVertical, ChevronUp, ChevronDown } from "lucide-react"
 import type { Task, TaskInput } from "@/lib/schedule"
+import { formatUnit, getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 
 type Language = "pt" | "en" | "es"
 
@@ -20,9 +21,6 @@ const translations = {
     startWeek: "Início",
     endWeek: "Fim",
     actions: "Ações",
-    week: "sem",
-    weeks: "sem",
-    weekShort: "S",
     addTask: "Adicionar Tarefa",
     noTasks: "Nenhuma tarefa criada ainda",
     invalidPredecessor: "ID predecessor inválido",
@@ -30,7 +28,6 @@ const translations = {
     requiredFields: "Preencha todos os campos obrigatórios",
     title: "Tabela de Tarefas",
     total: "TOTAL DO PROJETO",
-    totalWeeks: "semanas",
     none: "Nenhum",
     reorder: "Arraste para reordenar",
     moveUp: "Mover para cima",
@@ -46,9 +43,6 @@ const translations = {
     startWeek: "Start",
     endWeek: "End",
     actions: "Actions",
-    week: "wk",
-    weeks: "wks",
-    weekShort: "W",
     addTask: "Add Task",
     noTasks: "No tasks created yet",
     invalidPredecessor: "Invalid predecessor ID",
@@ -56,7 +50,6 @@ const translations = {
     requiredFields: "Fill all required fields",
     title: "Task Table",
     total: "PROJECT TOTAL",
-    totalWeeks: "weeks",
     none: "None",
     reorder: "Drag to reorder",
     moveUp: "Move up",
@@ -72,9 +65,6 @@ const translations = {
     startWeek: "Inicio",
     endWeek: "Fin",
     actions: "Acciones",
-    week: "sem",
-    weeks: "sem",
-    weekShort: "S",
     addTask: "Agregar Tarea",
     noTasks: "Ninguna tarea creada aún",
     invalidPredecessor: "ID predecesor inválido",
@@ -82,7 +72,6 @@ const translations = {
     requiredFields: "Complete todos los campos obligatorios",
     title: "Tabla de Tareas",
     total: "TOTAL DEL PROYECTO",
-    totalWeeks: "semanas",
     none: "Ninguno",
     reorder: "Arrastra para reordenar",
     moveUp: "Mover arriba",
@@ -99,6 +88,7 @@ interface TaskTableProps {
   onReorder: (from: number, to: number) => void
   projectWeeks: number
   language: Language
+  timeUnit: TimeUnit
 }
 
 export function TaskTable({
@@ -109,6 +99,7 @@ export function TaskTable({
   onReorder,
   projectWeeks,
   language,
+  timeUnit,
 }: TaskTableProps) {
   const [newTask, setNewTask] = useState<Partial<TaskInput>>({})
   const [showNewTaskRow, setShowNewTaskRow] = useState(false)
@@ -119,6 +110,7 @@ export function TaskTable({
   const [idDraft, setIdDraft] = useState<{ taskId: string; value: string } | null>(null)
 
   const t = translations[language]
+  const units = getUnitLabels(language, timeUnit)
 
   const commitId = () => {
     if (!idDraft) return
@@ -222,7 +214,9 @@ export function TaskTable({
                   <th className="w-8 p-2" />
                   <th className="text-left p-3 font-medium">{t.id}</th>
                   <th className="text-left p-3 font-medium">{t.name}</th>
-                  <th className="text-left p-3 font-medium">{t.duration}</th>
+                  <th className="text-left p-3 font-medium">
+                    {t.duration} ({units.many})
+                  </th>
                   <th className="text-left p-3 font-medium">{t.predecessor}</th>
                   <th className="text-left p-3 font-medium">{t.lag}</th>
                   <th className="text-left p-3 font-medium">{t.startWeek}</th>
@@ -323,11 +317,11 @@ export function TaskTable({
                     </td>
 
                     <td className="p-3 whitespace-nowrap">
-                      {t.weekShort}
+                      {units.short}
                       {task.startWeek}
                     </td>
                     <td className="p-3 whitespace-nowrap">
-                      {t.weekShort}
+                      {units.short}
                       {task.endWeek}
                     </td>
 
@@ -448,14 +442,14 @@ export function TaskTable({
                       {t.total}
                     </td>
                     <td className="p-3 whitespace-nowrap">
-                      {t.weekShort}1
+                      {units.short}1
                     </td>
                     <td className="p-3 whitespace-nowrap">
-                      {t.weekShort}
+                      {units.short}
                       {projectWeeks}
                     </td>
                     <td className="p-3 whitespace-nowrap text-primary">
-                      {projectWeeks} {t.totalWeeks}
+                      {formatUnit(projectWeeks, units)}
                     </td>
                   </tr>
                 </tfoot>

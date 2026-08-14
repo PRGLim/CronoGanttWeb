@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
 import type { Task, TaskInput } from "@/lib/schedule"
+import { getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 
 type Language = "pt" | "en" | "es"
 
@@ -18,11 +19,11 @@ const translations = {
     newTask: "Nova Tarefa",
     editTask: "Editar Tarefa",
     saveChanges: "Salvar Alterações",
-    lag: "Folga (semanas)",
+    lag: "Folga",
     lagHint: "Deslocamento em relação ao predecessor. Negativo sobrepõe as tarefas.",
     taskId: "ID da Tarefa",
     taskName: "Nome da Tarefa",
-    duration: "Duração (semanas)",
+    duration: "Duração",
     predecessor: "Tarefa Predecessora",
     phase: "Fase do Projeto",
     selectTask: "Selecione uma tarefa (opcional)",
@@ -48,11 +49,11 @@ const translations = {
     newTask: "New Task",
     editTask: "Edit Task",
     saveChanges: "Save Changes",
-    lag: "Lag (weeks)",
+    lag: "Lag",
     lagHint: "Offset from the predecessor. Negative values overlap the tasks.",
     taskId: "Task ID",
     taskName: "Task Name",
-    duration: "Duration (weeks)",
+    duration: "Duration",
     predecessor: "Predecessor Task",
     phase: "Project Phase",
     selectTask: "Select a task (optional)",
@@ -78,11 +79,11 @@ const translations = {
     newTask: "Nueva Tarea",
     editTask: "Editar Tarea",
     saveChanges: "Guardar Cambios",
-    lag: "Holgura (semanas)",
+    lag: "Holgura",
     lagHint: "Desplazamiento respecto al predecesor. Los valores negativos superponen las tareas.",
     taskId: "ID de Tarea",
     taskName: "Nombre de Tarea",
-    duration: "Duración (semanas)",
+    duration: "Duración",
     predecessor: "Tarea Predecesora",
     phase: "Fase del Proyecto",
     selectTask: "Selecciona una tarea (opcional)",
@@ -113,9 +114,10 @@ interface TaskFormProps {
   onSubmit: (task: TaskInput) => void
   onCancel: () => void
   language: Language
+  timeUnit: TimeUnit
 }
 
-export function TaskForm({ existingTasks, task, onSubmit, onCancel, language }: TaskFormProps) {
+export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, timeUnit }: TaskFormProps) {
   const isEditing = Boolean(task)
   const [formData, setFormData] = useState({
     id: task?.id ?? "",
@@ -127,6 +129,7 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language }: 
   const [error, setError] = useState("")
 
   const t = translations[language]
+  const units = getUnitLabels(language, timeUnit)
 
   // Esc fecha o modal
   useEffect(() => {
@@ -215,7 +218,9 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language }: 
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="duration">{t.duration} *</Label>
+              <Label htmlFor="duration">
+                {t.duration} ({units.many}) *
+              </Label>
               <Input
                 id="duration"
                 type="number"
@@ -252,7 +257,9 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language }: 
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="lag">{t.lag}</Label>
+              <Label htmlFor="lag">
+                {t.lag} ({units.many})
+              </Label>
               <Input
                 id="lag"
                 type="number"

@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Task } from "@/lib/schedule"
+import { formatUnit, getColumnScales, getUnitLabels, type ColumnScale, type TimeUnit } from "@/lib/time-unit"
 import { toPng } from "html-to-image"
 import Image from "next/image"
 import ExcelJS from "exceljs"
@@ -15,15 +16,11 @@ const translations = {
     task: "Tarefa",
     noTasks: "Nenhuma tarefa para exibir",
     addTasks: "Adicione tarefas para visualizar o gráfico de Gantt",
-    week: "sem",
     after: "Após",
     exportPng: "Exportar PNG",
     exportExcel: "Exportar para o Excel",
     exporting: "Exportando...",
-    weekShort: "S",
     total: "TOTAL DO PROJETO",
-    weeksLabel: "semanas",
-    weekLabel: "semana",
     zoomIn: "Aproximar",
     zoomOut: "Afastar",
     remove: "Remover tarefa",
@@ -31,20 +28,18 @@ const translations = {
     editName: "Clique para editar o nome",
     editDuration: "Clique para editar a duração",
     noPredecessor: "Sem predecessor",
+    scale: "Escala",
+    scaleHint: "Quantos períodos cada coluna representa",
   },
   en: {
     task: "Task",
     noTasks: "No tasks to display",
     addTasks: "Add tasks to visualize the Gantt chart",
-    week: "wk",
     after: "After",
     exportPng: "Export PNG",
     exportExcel: "Export to Excel",
     exporting: "Exporting...",
-    weekShort: "W",
     total: "PROJECT TOTAL",
-    weeksLabel: "weeks",
-    weekLabel: "week",
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
     remove: "Remove task",
@@ -52,20 +47,18 @@ const translations = {
     editName: "Click to edit name",
     editDuration: "Click to edit duration",
     noPredecessor: "No predecessor",
+    scale: "Scale",
+    scaleHint: "How many periods each column covers",
   },
   es: {
     task: "Tarea",
     noTasks: "Ninguna tarea para mostrar",
     addTasks: "Agrega tareas para visualizar el gráfico de Gantt",
-    week: "sem",
     after: "Después",
     exportPng: "Exportar PNG",
     exportExcel: "Exportar a Excel",
     exporting: "Exportando...",
-    weekShort: "S",
     total: "TOTAL DEL PROYECTO",
-    weeksLabel: "semanas",
-    weekLabel: "semana",
     zoomIn: "Acercar",
     zoomOut: "Alejar",
     remove: "Eliminar tarea",
@@ -73,6 +66,8 @@ const translations = {
     editName: "Clic para editar el nombre",
     editDuration: "Clic para editar la duración",
     noPredecessor: "Sin predecesor",
+    scale: "Escala",
+    scaleHint: "Cuántos períodos representa cada columna",
   },
 }
 
@@ -81,16 +76,30 @@ interface GanttChartProps {
   maxWeeks: number
   projectWeeks: number
   language: Language
+  timeUnit: TimeUnit
   onUpdateTask: (taskId: string, updatedData: Partial<Task>) => void
   onRemoveTask: (taskId: string) => void
   onReorder: (from: number, to: number) => void
 }
 
-const CELL_WIDTHS = [32, 48, 64, 88]
-const DEFAULT_ZOOM = 2
+const CELL_WIDTHS = [16, 24, 32, 48, 64, 88]
+/** 64px — mesma densidade de antes; os níveis menores existem para réguas longas. */
+const DEFAULT_ZOOM = 4
 const LABEL_WIDTH = 280
 const ROW_HEIGHT = 44
 const TOTAL_ROW_HEIGHT = 40
+/** Espaço mínimo para um rótulo de coluna caber sem encostar no vizinho. */
+const MIN_LABEL_WIDTH = 28
+/** Acima disso a régua fica densa demais e o gráfico passa a ser agrupado. */
+const MAX_COMFORTABLE_COLUMNS = 40
+/** Abaixo disso a barra não tem espaço para o texto da duração. */
+const MIN_BAR_TEXT_WIDTH = 26
+
+/** Escala mais detalhada que ainda cabe confortavelmente na tela. */
+function pickScale(scales: ColumnScale[], periods: number): number {
+  const index = scales.findIndex((scale) => Math.ceil(periods / scale.span) <= MAX_COMFORTABLE_COLUMNS)
+  return index === -1 ? scales.length - 1 : index
+}
 
 /** Estado de um arrasto de barra em andamento. */
 type BarDrag = {
@@ -108,13 +117,17 @@ export function GanttChart({
   maxWeeks,
   projectWeeks,
   language,
+  timeUnit,
   onUpdateTask,
   onRemoveTask,
   onReorder,
 }: GanttChartProps) {
   const t = translations[language]
+  const units = getUnitLabels(language, timeUnit)
 
+  const scales = getColumnScales(language, timeUnit)
   const [zoom, setZoom] = useState(DEFAULT_ZOOM)
+  const [scaleIndex, setScaleIndex] = useState(() => pickScale(scales, maxWeeks))
   /** Enquanto true, o gráfico é renderizado limpo — sem os controles de edição — para a captura. */
   const [isExporting, setIsExporting] = useState(false)
   const [draggingBarId, setDraggingBarId] = useState<string | null>(null)
@@ -125,10 +138,37 @@ export function GanttChart({
 
   const barDrag = useRef<BarDrag | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const lastUnit = useRef(timeUnit)
+  /** Depois que o usuário escolhe uma escala, o ajuste automático sai de cena. */
+  const scalePinned = useRef(false)
 
+  // Enquanto a escala não for fixada à mão, ela acompanha o tamanho do
+  // cronograma — trocar para dias ou crescer o projeto não joga o usuário
+  // numa régua de centenas de colunas.
+  useEffect(() => {
+    if (lastUnit.current !== timeUnit) {
+      lastUnit.current = timeUnit
+      scalePinned.current = false
+    }
+    if (!scalePinned.current) setScaleIndex(pickScale(getColumnScales(language, timeUnit), maxWeeks))
+  }, [timeUnit, language, maxWeeks])
+
+  const scale = scales[Math.min(scaleIndex, scales.length - 1)]
+  const { span } = scale
   const cellWidth = CELL_WIDTHS[zoom]
-  const weeks = Array.from({ length: maxWeeks }, (_, i) => i + 1)
-  const timelineWidth = weeks.length * cellWidth
+  /** Largura de um único período — as barras seguem esta medida, não a da coluna. */
+  const periodWidth = cellWidth / span
+  const columns = Array.from({ length: Math.ceil(maxWeeks / span) }, (_, i) => i + 1)
+  const timelineWidth = columns.length * cellWidth
+  /** Com colunas estreitas só um rótulo a cada N aparece — o resto vira só grade. */
+  const labelEvery = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / cellWidth))
+  /** Em dias sem agrupamento, marca o fim de cada semana para dar ritmo à régua. */
+  const isBlockEdge = (column: number) => span === 1 && timeUnit === "days" && column % 7 === 0
+  /** Primeiro e último período de uma coluna, para o tooltip das colunas agrupadas. */
+  const columnRange = (column: number) => {
+    const first = (column - 1) * span + 1
+    return span === 1 ? `${scale.short}${first}` : `${units.short}${first}-${units.short}${column * span}`
+  }
 
   const barColor = "var(--secondary)"
   const totalColor = "var(--primary)"
@@ -184,7 +224,7 @@ export function GanttChart({
     const drag = barDrag.current
     if (!drag) return
 
-    const delta = Math.round((e.clientX - drag.startX) / cellWidth)
+    const delta = Math.round((e.clientX - drag.startX) / periodWidth)
     // lag mínimo que ainda mantém o início na semana 1 ou depois
     const minLag = 1 - drag.base
 
@@ -235,19 +275,24 @@ export function GanttChart({
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet("Gantt Chart")
 
-    ws.addRow(["ID", t.task, ...weeks.map((w) => `${t.weekShort}${w}`)])
+    // Cada coluna cobre `span` períodos; a célula é pintada quando a tarefa
+    // toca qualquer período dessa faixa.
+    const covers = (column: number, from: number, to: number) =>
+      from <= column * span && to > (column - 1) * span
+
+    ws.addRow(["ID", t.task, ...columns.map((c) => `${scale.short}${c}`)])
 
     tasks.forEach((task) => {
       const rowValues: (string | number)[] = [task.id, task.name]
-      weeks.forEach((week) => {
-        rowValues.push(week >= task.startWeek && week <= task.endWeek ? "  " : "")
+      columns.forEach((column) => {
+        rowValues.push(covers(column, task.startWeek, task.endWeek) ? "  " : "")
       })
       ws.addRow(rowValues)
     })
 
     // Linha de total do projeto
     const totalRowValues: (string | number)[] = ["", t.total]
-    weeks.forEach((week) => totalRowValues.push(week <= projectWeeks ? "##" : ""))
+    columns.forEach((column) => totalRowValues.push(covers(column, 1, projectWeeks) ? "##" : ""))
     const totalRow = ws.addRow(totalRowValues)
 
     ws.eachRow((row, rowNumber) => {
@@ -280,10 +325,11 @@ export function GanttChart({
     })
     if (projectWeeks > 0) {
       const totalCell = ws.getCell(totalRow.number, 3)
-      totalCell.value = `${projectWeeks} ${projectWeeks > 1 ? t.weeksLabel : t.weekLabel}`
+      totalCell.value = formatUnit(projectWeeks, units)
     }
 
-    ws.columns = [{ width: 15 }, { width: 30 }, ...weeks.map(() => ({ width: 8 }))]
+    const columnWidth = columns.length > 30 ? 4 : 8
+    ws.columns = [{ width: 15 }, { width: 30 }, ...columns.map(() => ({ width: columnWidth }))]
 
     const buf = await wb.xlsx.writeBuffer()
     const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
@@ -357,6 +403,26 @@ export function GanttChart({
   return (
     <div className="flex flex-col gap-2 min-h-0">
       <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+        {/* Agrupa vários períodos por coluna quando a régua fica longa demais */}
+        <label className="flex items-center gap-1 text-sm text-muted-foreground">
+          {t.scale}
+          <select
+            value={scaleIndex}
+            onChange={(e) => {
+              scalePinned.current = true
+              setScaleIndex(Number(e.target.value))
+            }}
+            title={t.scaleHint}
+            className="h-8 rounded-md border px-2 text-sm bg-transparent cursor-pointer"
+          >
+            {scales.map((option, index) => (
+              <option key={option.span} value={index}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <div className="flex items-center gap-1 border rounded-md">
           <button
             onClick={() => setZoom((z) => Math.max(0, z - 1))}
@@ -409,14 +475,16 @@ export function GanttChart({
               <span>{t.task}</span>
             </div>
             <div className="flex bg-gray-100" style={{ width: timelineWidth }}>
-              {weeks.map((week) => (
+              {columns.map((column) => (
                 <div
-                  key={week}
-                  className="py-1.5 text-center text-sm font-medium border-r border-gray-300 text-black shrink-0"
+                  key={column}
+                  title={columnRange(column)}
+                  className={`py-1.5 text-center text-sm font-medium border-r text-black shrink-0 overflow-hidden ${
+                    isBlockEdge(column) ? "border-gray-400" : "border-gray-300"
+                  }`}
                   style={{ width: cellWidth }}
                 >
-                  {t.weekShort}
-                  {week}
+                  {(column - 1) % labelEvery === 0 ? `${scale.short}${column}` : ""}
                 </div>
               ))}
             </div>
@@ -487,7 +555,7 @@ export function GanttChart({
                       <span className="text-gray-300">|</span>
                       {isExporting ? (
                         <span className="shrink-0">
-                          {task.duration} {t.week}
+                          {task.duration} {units.abbrev}
                         </span>
                       ) : isEditingDuration ? (
                         <input
@@ -506,7 +574,7 @@ export function GanttChart({
                           title={t.editDuration}
                           className="hover:bg-yellow-50 rounded px-0.5 underline decoration-dotted shrink-0"
                         >
-                          {task.duration} {t.week}
+                          {task.duration} {units.abbrev}
                         </button>
                       )}
                       {isExporting ? (
@@ -558,8 +626,12 @@ export function GanttChart({
                   style={{ width: timelineWidth, height: ROW_HEIGHT }}
                 >
                   <div className="absolute inset-0 flex">
-                    {weeks.map((week) => (
-                      <div key={week} className="border-r border-gray-200 shrink-0" style={{ width: cellWidth }} />
+                    {columns.map((column) => (
+                      <div
+                        key={column}
+                        className={`border-r shrink-0 ${isBlockEdge(column) ? "border-gray-300" : "border-gray-200"}`}
+                        style={{ width: cellWidth }}
+                      />
                     ))}
                   </div>
 
@@ -572,8 +644,8 @@ export function GanttChart({
                       isExporting ? "" : draggingBarId === task.id ? "cursor-grabbing ring-2 ring-black/40" : "cursor-grab"
                     }`}
                     style={{
-                      left: (task.startWeek - 1) * cellWidth + 2,
-                      width: task.duration * cellWidth - 4,
+                      left: (task.startWeek - 1) * periodWidth + 2,
+                      width: Math.max(4, task.duration * periodWidth - 4),
                       backgroundColor: barColor,
                     }}
                   >
@@ -588,10 +660,12 @@ export function GanttChart({
                       />
                     )}
 
-                    <span className="text-xs font-medium text-white pointer-events-none px-2 truncate">
-                      {task.duration}
-                      {t.weekShort.toLowerCase()}
-                    </span>
+                    {task.duration * periodWidth >= MIN_BAR_TEXT_WIDTH && (
+                      <span className="text-xs font-medium text-white pointer-events-none px-2 truncate">
+                        {task.duration}
+                        {units.short.toLowerCase()}
+                      </span>
+                    )}
 
                     {/* alça direita */}
                     {!isExporting && (
@@ -619,16 +693,24 @@ export function GanttChart({
             </div>
             <div className="relative shrink-0 bg-gray-100" style={{ width: timelineWidth, height: TOTAL_ROW_HEIGHT }}>
               <div className="absolute inset-0 flex">
-                {weeks.map((week) => (
-                  <div key={week} className="border-r border-gray-200 shrink-0" style={{ width: cellWidth }} />
+                {columns.map((column) => (
+                  <div
+                    key={column}
+                    className={`border-r shrink-0 ${isBlockEdge(column) ? "border-gray-300" : "border-gray-200"}`}
+                    style={{ width: cellWidth }}
+                  />
                 ))}
               </div>
               <div
                 className="absolute top-1/2 -translate-y-1/2 h-7 rounded flex items-center justify-center"
-                style={{ left: 2, width: Math.max(projectWeeks, 1) * cellWidth - 4, backgroundColor: totalColor }}
+                style={{
+                  left: 2,
+                  width: Math.max(4, Math.max(projectWeeks, 1) * periodWidth - 4),
+                  backgroundColor: totalColor,
+                }}
               >
                 <span className="text-xs font-bold text-white px-2 truncate">
-                  {projectWeeks} {projectWeeks > 1 ? t.weeksLabel : t.weekLabel}
+                  {formatUnit(projectWeeks, units)}
                 </span>
               </div>
             </div>
