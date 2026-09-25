@@ -74,12 +74,14 @@ export function parseProjectJson(text: string): ProjectData {
 
     const duration = Number(task.duration)
     const lag = Number(task.lag)
+    const progress = Number(task.progress)
     tasks.push({
       id,
       name: name || id,
       duration: Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 1,
       predecessor: typeof task.predecessor === "string" && task.predecessor ? task.predecessor : undefined,
       lag: Number.isFinite(lag) ? Math.floor(lag) : 0,
+      progress: Number.isFinite(progress) && progress > 0 ? progress : 0,
       startWeek: 1,
       endWeek: 1,
       color: TASK_COLORS[0],
@@ -94,10 +96,8 @@ export function parseProjectJson(text: string): ProjectData {
     task.predecessor && !known.has(task.predecessor) ? { ...task, predecessor: undefined } : task,
   )
 
-  return {
-    tasks: scheduleTasks(cleaned),
-    timeUnit: isTimeUnit(raw.timeUnit) ? raw.timeUnit : "weeks",
-  }
+  const timeUnit = isTimeUnit(raw.timeUnit) ? raw.timeUnit : "weeks"
+  return { tasks: scheduleTasks(cleaned, timeUnit), timeUnit }
 }
 
 /** Etapas padrão de um projeto de modelagem, em sequência. */
@@ -132,17 +132,18 @@ const TEMPLATE_STEPS: Record<Language, string[]> = {
 }
 
 /** Cronograma inicial com as etapas encadeadas, uma após a outra. */
-export function createTemplateTasks(language: Language): Task[] {
+export function createTemplateTasks(language: Language, unit: TimeUnit): Task[] {
   const tasks: Task[] = TEMPLATE_STEPS[language].map((name, index) => ({
     id: `T${index + 1}`,
     name,
     duration: 1,
     predecessor: index === 0 ? undefined : `T${index}`,
     lag: 0,
+    progress: 0,
     startWeek: 1,
     endWeek: 1,
     color: TASK_COLORS[0],
   }))
 
-  return scheduleTasks(tasks)
+  return scheduleTasks(tasks, unit)
 }
