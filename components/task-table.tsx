@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Trash2, Check, X, Plus, GripVertical, ChevronUp, ChevronDown } from "lucide-react"
-import type { Task, TaskInput } from "@/lib/schedule"
+import { getPlannedEndWeek, getProgressPercent, type Task, type TaskInput } from "@/lib/schedule"
 import { formatUnit, getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 
 type Language = "pt" | "en" | "es"
@@ -18,6 +18,8 @@ const translations = {
     duration: "Duração",
     predecessor: "Predecessor",
     lag: "Folga",
+    progress: "Progresso",
+    delayed: "Atraso de",
     startWeek: "Início",
     endWeek: "Fim",
     actions: "Ações",
@@ -40,6 +42,8 @@ const translations = {
     duration: "Duration",
     predecessor: "Predecessor",
     lag: "Lag",
+    progress: "Progress",
+    delayed: "Delayed by",
     startWeek: "Start",
     endWeek: "End",
     actions: "Actions",
@@ -62,6 +66,8 @@ const translations = {
     duration: "Duración",
     predecessor: "Predecesor",
     lag: "Holgura",
+    progress: "Progreso",
+    delayed: "Retraso de",
     startWeek: "Inicio",
     endWeek: "Fin",
     actions: "Acciones",
@@ -111,6 +117,7 @@ export function TaskTable({
 
   const t = translations[language]
   const units = getUnitLabels(language, timeUnit)
+  const dayUnits = getUnitLabels(language, "days")
 
   const commitId = () => {
     if (!idDraft) return
@@ -157,6 +164,7 @@ export function TaskTable({
       duration: Math.max(1, newTask.duration!),
       predecessor: newTask.predecessor || undefined,
       lag: 0,
+      progress: 0,
     })
     setNewTask({})
     setShowNewTaskRow(false)
@@ -219,6 +227,9 @@ export function TaskTable({
                   </th>
                   <th className="text-left p-3 font-medium">{t.predecessor}</th>
                   <th className="text-left p-3 font-medium">{t.lag}</th>
+                  <th className="text-left p-3 font-medium">
+                    {t.progress} ({dayUnits.many})
+                  </th>
                   <th className="text-left p-3 font-medium">{t.startWeek}</th>
                   <th className="text-left p-3 font-medium">{t.endWeek}</th>
                   <th className="text-left p-3 font-medium">{t.actions}</th>
@@ -316,11 +327,42 @@ export function TaskTable({
                       />
                     </td>
 
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={task.progress ?? 0}
+                          onChange={(e) => {
+                            const progress = Number(e.target.value)
+                            onUpdateTask(task.id, { progress: Number.isFinite(progress) ? Math.max(0, progress) : 0 })
+                          }}
+                          className="h-8 w-20"
+                        />
+                        <span
+                          className={`text-xs font-medium w-10 text-right ${
+                            getProgressPercent(task, timeUnit) > 100 ? "text-destructive" : "text-muted-foreground"
+                          }`}
+                        >
+                          {Math.round(getProgressPercent(task, timeUnit))}%
+                        </span>
+                      </div>
+                    </td>
+
                     <td className="p-3 whitespace-nowrap">
                       {units.short}
                       {task.startWeek}
                     </td>
-                    <td className="p-3 whitespace-nowrap">
+                    {/* Fim efetivo — em vermelho quando o progresso estourou a duração */}
+                    <td
+                      className={`p-3 whitespace-nowrap ${task.endWeek > getPlannedEndWeek(task) ? "text-destructive font-medium" : ""}`}
+                      title={
+                        task.endWeek > getPlannedEndWeek(task)
+                          ? `${t.delayed} ${formatUnit(task.endWeek - getPlannedEndWeek(task), units)}`
+                          : undefined
+                      }
+                    >
                       {units.short}
                       {task.endWeek}
                     </td>
@@ -410,6 +452,7 @@ export function TaskTable({
                     <td className="p-3">-</td>
                     <td className="p-3">-</td>
                     <td className="p-3">-</td>
+                    <td className="p-3">-</td>
                     <td className="p-3">
                       <div className="flex gap-1">
                         <Button onClick={addNewTask} size="sm" variant="ghost" className="h-8 w-8 p-0">
@@ -438,7 +481,7 @@ export function TaskTable({
                 <tfoot className="sticky bottom-0 bg-card z-10">
                   <tr className="border-t-2 border-primary bg-muted/30 font-bold">
                     <td className="p-2" />
-                    <td className="p-3" colSpan={5}>
+                    <td className="p-3" colSpan={6}>
                       {t.total}
                     </td>
                     <td className="p-3 whitespace-nowrap">

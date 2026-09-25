@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
-import type { Task, TaskInput } from "@/lib/schedule"
+import { getProgressPercent, type Task, type TaskInput } from "@/lib/schedule"
 import { getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 
 type Language = "pt" | "en" | "es"
@@ -21,6 +21,9 @@ const translations = {
     saveChanges: "Salvar Alterações",
     lag: "Folga",
     lagHint: "Deslocamento em relação ao predecessor. Negativo sobrepõe as tarefas.",
+    progress: "Progresso",
+    progressHint: "Dias já realizados. Acima da duração, a tarefa se estende e empurra as sucessoras.",
+    progressNegative: "Progresso não pode ser negativo",
     taskId: "ID da Tarefa",
     taskName: "Nome da Tarefa",
     duration: "Duração",
@@ -51,6 +54,9 @@ const translations = {
     saveChanges: "Save Changes",
     lag: "Lag",
     lagHint: "Offset from the predecessor. Negative values overlap the tasks.",
+    progress: "Progress",
+    progressHint: "Days already done. Beyond the duration, the task extends and pushes its successors.",
+    progressNegative: "Progress cannot be negative",
     taskId: "Task ID",
     taskName: "Task Name",
     duration: "Duration",
@@ -81,6 +87,9 @@ const translations = {
     saveChanges: "Guardar Cambios",
     lag: "Holgura",
     lagHint: "Desplazamiento respecto al predecesor. Los valores negativos superponen las tareas.",
+    progress: "Progreso",
+    progressHint: "Días ya realizados. Por encima de la duración, la tarea se extiende y empuja a las sucesoras.",
+    progressNegative: "El progreso no puede ser negativo",
     taskId: "ID de Tarea",
     taskName: "Nombre de Tarea",
     duration: "Duración",
@@ -125,11 +134,13 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
     duration: task ? String(task.duration) : "",
     predecessor: task?.predecessor ?? "",
     lag: task ? String(task.lag ?? 0) : "0",
+    progress: task ? String(task.progress ?? 0) : "0",
   })
   const [error, setError] = useState("")
 
   const t = translations[language]
   const units = getUnitLabels(language, timeUnit)
+  const dayUnits = getUnitLabels(language, "days")
 
   // Esc fecha o modal
   useEffect(() => {
@@ -164,6 +175,12 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
 
     const lag = Number.parseInt(formData.lag, 10)
 
+    const progress = formData.progress.trim() ? Number(formData.progress) : 0
+    if (!Number.isFinite(progress) || progress < 0) {
+      setError(t.progressNegative)
+      return
+    }
+
     setError("")
     onSubmit({
       id,
@@ -171,6 +188,7 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
       duration,
       predecessor: formData.predecessor || undefined,
       lag: Number.isFinite(lag) ? lag : 0,
+      progress,
     })
   }
 
@@ -267,6 +285,36 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
                 onChange={(e) => setFormData((prev) => ({ ...prev, lag: e.target.value }))}
               />
               <p className="text-xs text-muted-foreground">{t.lagHint}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="progress">
+                {t.progress} ({dayUnits.many})
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="progress"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={formData.progress}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, progress: e.target.value }))}
+                />
+                {/* Prévia do percentual com a duração digitada no momento */}
+                <span className="text-sm font-medium text-muted-foreground w-14 text-right shrink-0">
+                  {Math.round(
+                    getProgressPercent(
+                      {
+                        progress: Number(formData.progress) || 0,
+                        duration: Number.parseInt(formData.duration, 10) || 0,
+                      },
+                      timeUnit,
+                    ),
+                  )}
+                  %
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{t.progressHint}</p>
             </div>
 
             <div className="flex gap-2 pt-4">

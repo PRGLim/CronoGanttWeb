@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
-import type { Task } from "@/lib/schedule"
+import { getPlannedEndWeek, getProgressPercent, getProgressPeriods, type Task } from "@/lib/schedule"
 import {
   formatUnit,
   getColumnScales,
@@ -34,6 +34,9 @@ const translations = {
     reorder: "Arraste para reordenar",
     editName: "Clique para editar o nome",
     editDuration: "Clique para editar a duração",
+    editProgress: "Clique para editar o progresso (dias)",
+    progress: "Progresso",
+    overrun: "Estouro",
     noPredecessor: "Sem predecessor",
     scale: "Escala",
     scaleHint: "Quantos períodos cada coluna representa",
@@ -53,6 +56,9 @@ const translations = {
     reorder: "Drag to reorder",
     editName: "Click to edit name",
     editDuration: "Click to edit duration",
+    editProgress: "Click to edit progress (days)",
+    progress: "Progress",
+    overrun: "Overrun",
     noPredecessor: "No predecessor",
     scale: "Scale",
     scaleHint: "How many periods each column covers",
@@ -72,6 +78,9 @@ const translations = {
     reorder: "Arrastra para reordenar",
     editName: "Clic para editar el nombre",
     editDuration: "Clic para editar la duración",
+    editProgress: "Clic para editar el progreso (días)",
+    progress: "Progreso",
+    overrun: "Exceso",
     noPredecessor: "Sin predecesor",
     scale: "Escala",
     scaleHint: "Cuántos períodos representa cada columna",
@@ -94,6 +103,10 @@ const CELL_WIDTHS = [16, 24, 32, 48, 64, 88]
 const DEFAULT_ZOOM = 4
 const LABEL_WIDTH = 280
 const ROW_HEIGHT = 44
+/** Altura da barra da tarefa, centralizada na linha. */
+const BAR_HEIGHT = 28
+/** Distância do topo da linha até a base da barra — referência do progresso. */
+const BAR_BOTTOM = (ROW_HEIGHT + BAR_HEIGHT) / 2
 const TOTAL_ROW_HEIGHT = 40
 /** Espaço mínimo para um rótulo de coluna caber sem encostar no vizinho. */
 const MIN_LABEL_WIDTH = 28
@@ -101,6 +114,14 @@ const MIN_LABEL_WIDTH = 28
 const MAX_COMFORTABLE_COLUMNS = 40
 /** Abaixo disso a barra não tem espaço para o texto da duração. */
 const MIN_BAR_TEXT_WIDTH = 26
+/** Espessura da barrinha de progresso na base da barra da tarefa. */
+const PROGRESS_HEIGHT = 5
+/** Vermelho claro — mesma cor dentro e fora da barra, inclusive no estouro. */
+const PROGRESS_COLOR = "#fca5a5"
+/** Espaço reservado à direita da barra para o rótulo do percentual ("125%"). */
+const PROGRESS_LABEL_ROOM = 40
+
+type EditableField = "name" | "duration" | "progress"
 
 /** Escala mais detalhada que ainda cabe confortavelmente na tela. */
 function pickScale(scales: ColumnScale[], periods: number): number {
@@ -140,7 +161,7 @@ export function GanttChart({
   const [draggingBarId, setDraggingBarId] = useState<string | null>(null)
   const [dragRowIndex, setDragRowIndex] = useState<number | null>(null)
   const [dropRowIndex, setDropRowIndex] = useState<number | null>(null)
-  const [editing, setEditing] = useState<{ taskId: string; field: "name" | "duration" } | null>(null)
+  const [editing, setEditing] = useState<{ taskId: string; field: EditableField } | null>(null)
   const [editValue, setEditValue] = useState("")
 
   const barDrag = useRef<BarDrag | null>(null)
@@ -178,14 +199,27 @@ export function GanttChart({
     return span === 1 ? `${scale.short}${first}` : `${units.short}${first}-${units.short}${column * span}`
   }
 
+  /** Quanto os rótulos de progresso passam do fim da régua — vira folga à direita do gráfico. */
+  const progressLabelOverflow = Math.max(
+    0,
+    ...tasks
+      .filter((task) => (task.progress ?? 0) > 0)
+      .map(
+        (task) =>
+          (task.startWeek - 1 + Math.max(task.duration, getProgressPeriods(task, timeUnit))) * periodWidth +
+          PROGRESS_LABEL_ROOM -
+          timelineWidth,
+      ),
+  )
+
   const barColor = "var(--secondary)"
   const totalColor = "var(--primary)"
 
   /* ---------------------------------------------------------------- edição */
 
-  const startEditing = (task: Task, field: "name" | "duration") => {
+  const startEditing = (task: Task, field: EditableField) => {
     setEditing({ taskId: task.id, field })
-    setEditValue(field === "name" ? task.name : String(task.duration))
+    setEditValue(field === "name" ? task.name : String(field === "duration" ? task.duration : (task.progress ?? 0)))
   }
 
   const commitEditing = () => {
@@ -193,9 +227,12 @@ export function GanttChart({
     if (editing.field === "name") {
       const name = editValue.trim()
       if (name) onUpdateTask(editing.taskId, { name })
-    } else {
+    } else if (editing.field === "duration") {
       const duration = Number.parseInt(editValue, 10)
       if (Number.isFinite(duration) && duration > 0) onUpdateTask(editing.taskId, { duration })
+    } else {
+      const progress = editValue.trim() ? Number(editValue) : 0
+      if (Number.isFinite(progress) && progress >= 0) onUpdateTask(editing.taskId, { progress })
     }
     setEditing(null)
   }
@@ -288,24 +325,28 @@ export function GanttChart({
     const covers = (column: number, from: number, to: number) =>
       from <= column * span && to > (column - 1) * span
 
-    ws.addRow(["ID", t.task, ...columns.map((c) => `${scale.short}${c}`)])
+    ws.addRow(["ID", t.task, `${t.progress} (%)`, ...columns.map((c) => `${scale.short}${c}`)])
 
+    // "  " marca o período planejado e "!!" o estouro causado pelo progresso.
     tasks.forEach((task) => {
-      const rowValues: (string | number)[] = [task.id, task.name]
+      const plannedEnd = getPlannedEndWeek(task)
+      const rowValues: (string | number)[] = [task.id, task.name, `${Math.round(getProgressPercent(task, timeUnit))}%`]
       columns.forEach((column) => {
-        rowValues.push(covers(column, task.startWeek, task.endWeek) ? "  " : "")
+        if (covers(column, task.startWeek, plannedEnd)) rowValues.push("  ")
+        else if (covers(column, plannedEnd + 1, task.endWeek)) rowValues.push("!!")
+        else rowValues.push("")
       })
       ws.addRow(rowValues)
     })
 
     // Linha de total do projeto
-    const totalRowValues: (string | number)[] = ["", t.total]
+    const totalRowValues: (string | number)[] = ["", t.total, ""]
     columns.forEach((column) => totalRowValues.push(covers(column, 1, projectWeeks) ? "##" : ""))
     const totalRow = ws.addRow(totalRowValues)
 
     ws.eachRow((row, rowNumber) => {
       row.eachCell((cell, colNumber) => {
-        if (colNumber <= 2) {
+        if (colNumber <= 3) {
           cell.alignment = { horizontal: "center", vertical: "middle" }
         }
         if (rowNumber === 1) {
@@ -316,6 +357,9 @@ export function GanttChart({
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "990000" } }
           cell.font = { bold: true, color: { argb: "FFFFFF" } }
           cell.alignment = { horizontal: "center", vertical: "middle" }
+        } else if (cell.value === "!!") {
+          cell.value = ""
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFCA5A5" } }
         }
       })
     })
@@ -324,7 +368,7 @@ export function GanttChart({
     totalRow.eachCell((cell, colNumber) => {
       cell.font = { bold: true, color: { argb: "FFFFFF" } }
       cell.alignment = { horizontal: "center", vertical: "middle" }
-      if (colNumber > 2 && cell.value === "##") {
+      if (colNumber > 3 && cell.value === "##") {
         cell.value = ""
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF0000" } }
       } else if (colNumber === 2) {
@@ -332,12 +376,12 @@ export function GanttChart({
       }
     })
     if (projectWeeks > 0) {
-      const totalCell = ws.getCell(totalRow.number, 3)
+      const totalCell = ws.getCell(totalRow.number, 4)
       totalCell.value = formatUnit(projectWeeks, units)
     }
 
     const columnWidth = columns.length > 30 ? 4 : 8
-    ws.columns = [{ width: 15 }, { width: 30 }, ...columns.map(() => ({ width: columnWidth }))]
+    ws.columns = [{ width: 15 }, { width: 30 }, { width: 14 }, ...columns.map(() => ({ width: columnWidth }))]
 
     const buf = await wb.xlsx.writeBuffer()
     const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
@@ -472,7 +516,7 @@ export function GanttChart({
         ref={scrollRef}
         className="overflow-auto min-h-0 max-h-[70vh] lg:max-h-none bg-white rounded-md border border-gray-300"
       >
-        <div className="min-w-max">
+        <div className="min-w-max" style={{ paddingRight: progressLabelOverflow }}>
           {/* Cabeçalho com as semanas */}
           <div className="flex border-b border-gray-300 sticky top-0 z-30">
             <div
@@ -503,6 +547,17 @@ export function GanttChart({
             const isDropTarget = dropRowIndex === index && dragRowIndex !== null && dragRowIndex !== index
             const isEditingName = editing?.taskId === task.id && editing.field === "name"
             const isEditingDuration = editing?.taskId === task.id && editing.field === "duration"
+            const isEditingProgress = editing?.taskId === task.id && editing.field === "progress"
+            const hasProgress = (task.progress ?? 0) > 0
+            const exactPercent = getProgressPercent(task, timeUnit)
+            const percent = Math.round(exactPercent)
+            // Trecho do progresso que passou da duração planejada, em períodos.
+            const overrunPeriods = Math.max(0, getProgressPeriods(task, timeUnit) - task.duration)
+            const barWidth = task.duration * periodWidth
+            const barLeft = (task.startWeek - 1) * periodWidth + 2
+            /** Fim da barra planejada — onde começa o estouro. */
+            const barEnd = barLeft + Math.max(4, barWidth - 4)
+            const progressEnd = barEnd + overrunPeriods * periodWidth
 
             return (
               <div
@@ -585,6 +640,44 @@ export function GanttChart({
                           {task.duration} {units.abbrev}
                         </button>
                       )}
+                      {/* Progresso: editado em dias, exibido em percentual */}
+                      {isExporting ? (
+                        hasProgress && (
+                          <>
+                            <span className="text-gray-300">|</span>
+                            <span className={`shrink-0 ${percent > 100 ? "text-red-600 font-semibold" : ""}`}>
+                              {percent}%
+                            </span>
+                          </>
+                        )
+                      ) : (
+                        <>
+                          <span className="text-gray-300">|</span>
+                          {isEditingProgress ? (
+                            <input
+                              autoFocus
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={commitEditing}
+                              onKeyDown={handleEditKeyDown}
+                              className="w-12 border border-red-500 rounded px-1 outline-none bg-white"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => startEditing(task, "progress")}
+                              title={`${t.editProgress}: ${task.progress ?? 0}`}
+                              className={`hover:bg-yellow-50 rounded px-0.5 underline decoration-dotted shrink-0 ${
+                                percent > 100 ? "text-red-600 font-semibold" : ""
+                              }`}
+                            >
+                              {percent}%
+                            </button>
+                          )}
+                        </>
+                      )}
                       {isExporting ? (
                         // No PNG o predecessor vira texto — só aparece quando existe.
                         task.predecessor && (
@@ -648,15 +741,28 @@ export function GanttChart({
                     onPointerMove={isExporting ? undefined : moveBarDrag}
                     onPointerUp={isExporting ? undefined : endBarDrag}
                     onPointerCancel={isExporting ? undefined : endBarDrag}
-                    className={`absolute top-1/2 -translate-y-1/2 h-7 rounded flex items-center justify-center select-none touch-none ${
+                    className={`absolute top-1/2 -translate-y-1/2 rounded flex items-center justify-center select-none touch-none overflow-hidden ${
                       isExporting ? "" : draggingBarId === task.id ? "cursor-grabbing ring-2 ring-black/40" : "cursor-grab"
-                    }`}
+                    } ${overrunPeriods > 0 ? "rounded-br-none" : ""}`}
                     style={{
-                      left: (task.startWeek - 1) * periodWidth + 2,
-                      width: Math.max(4, task.duration * periodWidth - 4),
+                      left: barLeft,
+                      width: barEnd - barLeft,
+                      height: BAR_HEIGHT,
                       backgroundColor: barColor,
                     }}
                   >
+                    {/* Barrinha de progresso na base da barra, até o limite de 100% */}
+                    {hasProgress && (
+                      <div
+                        className="absolute bottom-0 left-0 pointer-events-none"
+                        style={{
+                          width: `${Math.min(100, exactPercent)}%`,
+                          height: PROGRESS_HEIGHT,
+                          backgroundColor: PROGRESS_COLOR,
+                        }}
+                      />
+                    )}
+
                     {/* alça esquerda */}
                     {!isExporting && (
                       <div
@@ -668,8 +774,8 @@ export function GanttChart({
                       />
                     )}
 
-                    {task.duration * periodWidth >= MIN_BAR_TEXT_WIDTH && (
-                      <span className="text-xs font-medium text-white pointer-events-none px-2 truncate">
+                    {barWidth >= MIN_BAR_TEXT_WIDTH && (
+                      <span className="relative text-xs font-medium text-white pointer-events-none px-2 truncate">
                         {task.duration}
                         {units.short.toLowerCase()}
                       </span>
@@ -686,6 +792,33 @@ export function GanttChart({
                       />
                     )}
                   </div>
+
+                  {/* Progresso além da duração: a barrinha continua para fora da barra da tarefa */}
+                  {overrunPeriods > 0 && (
+                    <div
+                      title={`${t.overrun}: ${percent}%`}
+                      className="absolute rounded-r-sm"
+                      style={{
+                        left: barEnd,
+                        top: BAR_BOTTOM - PROGRESS_HEIGHT,
+                        width: overrunPeriods * periodWidth,
+                        height: PROGRESS_HEIGHT,
+                        backgroundColor: PROGRESS_COLOR,
+                      }}
+                    />
+                  )}
+
+                  {/* Percentual do lado de fora, alinhado à base da barra (canto inferior direito) */}
+                  {hasProgress && (
+                    <span
+                      className={`absolute text-[10px] leading-none font-semibold whitespace-nowrap pointer-events-none -translate-y-full ${
+                        percent > 100 ? "text-red-600" : "text-gray-600"
+                      }`}
+                      style={{ left: progressEnd + 4, top: BAR_BOTTOM }}
+                    >
+                      {percent}%
+                    </span>
+                  )}
                 </div>
               </div>
             )

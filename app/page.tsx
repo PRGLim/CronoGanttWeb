@@ -19,9 +19,17 @@ import {
 import { GanttChart } from "@/components/gantt-chart"
 import { TaskForm } from "@/components/task-form"
 import { TaskTable } from "@/components/task-table"
-import { scheduleTasks, TASK_COLORS, getProjectWeeks, type Task, type TaskInput } from "@/lib/schedule"
+import {
+  scheduleTasks,
+  TASK_COLORS,
+  getProjectWeeks,
+  getProgressPercent,
+  getPlannedEndWeek,
+  type Task,
+  type TaskInput,
+} from "@/lib/schedule"
 import { createTemplateTasks, exportProjectJson, parseProjectJson } from "@/lib/project-file"
-import { getUnitLabels, type TimeUnit } from "@/lib/time-unit"
+import { formatUnit, getUnitLabels, type TimeUnit } from "@/lib/time-unit"
 import Image from "next/image"
 
 
@@ -38,6 +46,8 @@ const translations = {
     duration: "Duração",
     period: "Período",
     after: "Após",
+    progress: "Progresso",
+    delayed: "atraso",
     tableView: "Visualização em Tabela",
     ganttView: "Visualização em Gantt",
     totalDuration: "Duração total",
@@ -66,6 +76,8 @@ const translations = {
     duration: "Duration",
     period: "Period",
     after: "After",
+    progress: "Progress",
+    delayed: "delay",
     tableView: "Table View",
     ganttView: "Gantt View",
     totalDuration: "Total duration",
@@ -94,6 +106,8 @@ const translations = {
     duration: "Duración",
     period: "Período",
     after: "Después",
+    progress: "Progreso",
+    delayed: "retraso",
     tableView: "Vista de Tabla",
     ganttView: "Vista de Gantt",
     totalDuration: "Duración total",
@@ -131,14 +145,16 @@ export default function ProjectManager() {
 
   const t = translations[language]
   const units = getUnitLabels(language, timeUnit)
+  const dayUnits = getUnitLabels(language, "days")
 
   // Persistência local: o trabalho não se perde ao recarregar a página.
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) setTasks(scheduleTasks(JSON.parse(saved) as Task[]))
       const savedUnit = localStorage.getItem(UNIT_STORAGE_KEY)
-      if (savedUnit === "weeks" || savedUnit === "days") setTimeUnit(savedUnit)
+      const unit: TimeUnit = savedUnit === "days" ? "days" : "weeks"
+      setTimeUnit(unit)
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) setTasks(scheduleTasks(JSON.parse(saved) as Task[], unit))
     } catch {
       // storage indisponível ou conteúdo inválido — começa vazio
     }
@@ -156,7 +172,7 @@ export default function ProjectManager() {
   }, [tasks, timeUnit])
 
   const addTask = (taskData: TaskInput) => {
-    setTasks((prev) => scheduleTasks([...prev, { ...taskData, startWeek: 1, endWeek: 1, color: TASK_COLORS[0] }]))
+    setTasks((prev) => scheduleTasks([...prev, { ...taskData, startWeek: 1, endWeek: 1, color: TASK_COLORS[0] }], timeUnit))
     setShowForm(false)
   }
 
@@ -167,6 +183,7 @@ export default function ProjectManager() {
           .filter((task) => task.id !== taskId)
           // limpa dependências órfãs para não quebrar o cronograma
           .map((task) => (task.predecessor === taskId ? { ...task, predecessor: undefined } : task)),
+        timeUnit,
       ),
     )
   }
@@ -180,7 +197,7 @@ export default function ProjectManager() {
         if (renamedId && task.predecessor === taskId) return { ...task, predecessor: renamedId }
         return task
       })
-      return scheduleTasks(next)
+      return scheduleTasks(next, timeUnit)
     })
   }
 
@@ -205,7 +222,7 @@ export default function ProjectManager() {
       const next = [...prev]
       const [moved] = next.splice(from, 1)
       next.splice(to, 0, moved)
-      return scheduleTasks(next)
+      return scheduleTasks(next, timeUnit)
     })
   }
 
@@ -218,7 +235,13 @@ export default function ProjectManager() {
 
   const generateTemplate = () => {
     if (tasks.length > 0 && !window.confirm(t.templateConfirm)) return
-    setTasks(createTemplateTasks(language))
+    setTasks(createTemplateTasks(language, timeUnit))
+  }
+
+  /** O progresso é sempre em dias, então trocar a unidade muda quanto ele ocupa no cronograma. */
+  const changeTimeUnit = (unit: TimeUnit) => {
+    setTimeUnit(unit)
+    setTasks((prev) => scheduleTasks(prev, unit))
   }
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,12 +296,12 @@ export default function ProjectManager() {
               ))}
             </div>
 
-            {/* Unidade exibida — só troca os rótulos, os valores continuam iguais */}
+            {/* Unidade exibida — troca os rótulos; só o progresso (em dias) é reconvertido */}
             <div className="flex border rounded-lg">
               {(["weeks", "days"] as TimeUnit[]).map((unit) => (
                 <Button
                   key={unit}
-                  onClick={() => setTimeUnit(unit)}
+                  onClick={() => changeTimeUnit(unit)}
                   variant={timeUnit === unit ? "default" : "ghost"}
                   size="sm"
                   className="rounded-none first:rounded-l-lg last:rounded-r-lg"
@@ -446,7 +469,19 @@ export default function ProjectManager() {
                                   {t.period}: {units.short}
                                   {task.startWeek} - {units.short}
                                   {task.endWeek}
+                                  {task.endWeek > getPlannedEndWeek(task) && (
+                                    <span className="text-destructive">
+                                      {" "}
+                                      (+{task.endWeek - getPlannedEndWeek(task)} {units.abbrev} {t.delayed})
+                                    </span>
+                                  )}
                                 </div>
+                                {(task.progress ?? 0) > 0 && (
+                                  <div>
+                                    {t.progress}: {formatUnit(task.progress ?? 0, dayUnits)} (
+                                    {Math.round(getProgressPercent(task, timeUnit))}%)
+                                  </div>
+                                )}
                                 {task.predecessor && (
                                   <div>
                                     {t.after}: {task.predecessor}
