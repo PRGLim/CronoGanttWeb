@@ -4,9 +4,13 @@ import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import { getPlannedEndWeek, getProgressPercent, getProgressPeriods, type Task } from "@/lib/schedule"
 import {
+  formatFullDate,
+  formatShortDate,
   formatUnit,
   getColumnScales,
+  getPeriodStartDate,
   getUnitLabels,
+  parseIsoDate,
   periodsPerWeek,
   type ColumnScale,
   type TimeUnit,
@@ -93,6 +97,8 @@ interface GanttChartProps {
   projectWeeks: number
   language: Language
   timeUnit: TimeUnit
+  /** Data inicial (AAAA-MM-DD); null mantém as colunas genéricas (S1, S2...). */
+  startDate: string | null
   onUpdateTask: (taskId: string, updatedData: Partial<Task>) => void
   onRemoveTask: (taskId: string) => void
   onReorder: (from: number, to: number) => void
@@ -110,6 +116,8 @@ const BAR_BOTTOM = (ROW_HEIGHT + BAR_HEIGHT) / 2
 const TOTAL_ROW_HEIGHT = 40
 /** Espaço mínimo para um rótulo de coluna caber sem encostar no vizinho. */
 const MIN_LABEL_WIDTH = 28
+/** Idem, quando o rótulo é uma data ("02/03"). */
+const MIN_DATE_LABEL_WIDTH = 44
 /** Acima disso a régua fica densa demais e o gráfico passa a ser agrupado. */
 const MAX_COMFORTABLE_COLUMNS = 40
 /** Abaixo disso a barra não tem espaço para o texto da duração. */
@@ -146,6 +154,7 @@ export function GanttChart({
   projectWeeks,
   language,
   timeUnit,
+  startDate,
   onUpdateTask,
   onRemoveTask,
   onReorder,
@@ -189,7 +198,8 @@ export function GanttChart({
   const columns = Array.from({ length: Math.ceil(maxWeeks / span) }, (_, i) => i + 1)
   const timelineWidth = columns.length * cellWidth
   /** Com colunas estreitas só um rótulo a cada N aparece — o resto vira só grade. */
-  const labelEvery = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / cellWidth))
+  const start = startDate ? parseIsoDate(startDate) : null
+  const labelEvery = Math.max(1, Math.ceil((start ? MIN_DATE_LABEL_WIDTH : MIN_LABEL_WIDTH) / cellWidth))
   /** Em dias sem agrupamento, marca o fim de cada semana para dar ritmo à régua. */
   const perWeek = periodsPerWeek(timeUnit)
   const isBlockEdge = (column: number) => span === 1 && perWeek > 1 && column % perWeek === 0
@@ -197,6 +207,23 @@ export function GanttChart({
   const columnRange = (column: number) => {
     const first = (column - 1) * span + 1
     return span === 1 ? `${scale.short}${first}` : `${units.short}${first}-${units.short}${column * span}`
+  }
+  /** Data em que a coluna começa — null no modo genérico. */
+  const columnDate = (column: number) => (start ? getPeriodStartDate(start, timeUnit, (column - 1) * span) : null)
+  const columnLabel = (column: number) => {
+    const date = columnDate(column)
+    return date ? formatShortDate(date, language) : `${scale.short}${column}`
+  }
+  /** O ano só aparece na primeira coluna e quando vira — o resto fica limpo. */
+  const columnYear = (column: number) => {
+    const date = columnDate(column)
+    if (!date) return ""
+    const previous = column > 1 ? columnDate(column - 1) : null
+    return !previous || previous.getFullYear() !== date.getFullYear() ? String(date.getFullYear()) : ""
+  }
+  const columnTooltip = (column: number) => {
+    const date = columnDate(column)
+    return date ? `${formatFullDate(date, language)} · ${columnRange(column)}` : columnRange(column)
   }
 
   /** Quanto os rótulos de progresso passam do fim da régua — vira folga à direita do gráfico. */
@@ -322,10 +349,14 @@ export function GanttChart({
 
     // Cada coluna cobre `span` períodos; a célula é pintada quando a tarefa
     // toca qualquer período dessa faixa.
+    const formatDate = (column: number) => {
+      const date = columnDate(column)
+      return date ? date.toLocaleDateString(language === "en" ? "en-US" : language === "es" ? "es-ES" : "pt-BR") : ""
+    }
     const covers = (column: number, from: number, to: number) =>
       from <= column * span && to > (column - 1) * span
 
-    ws.addRow(["ID", t.task, `${t.progress} (%)`, ...columns.map((c) => `${scale.short}${c}`)])
+    ws.addRow(["ID", t.task, `${t.progress} (%)`, ...columns.map((c) => (start ? formatDate(c) : `${scale.short}${c}`))])
 
     // "  " marca o período planejado e "!!" o estouro causado pelo progresso.
     tasks.forEach((task) => {
@@ -378,6 +409,14 @@ export function GanttChart({
     if (projectWeeks > 0) {
       const totalCell = ws.getCell(totalRow.number, 4)
       totalCell.value = formatUnit(projectWeeks, units)
+    }
+
+    // Datas completas ficam na vertical para caber em colunas estreitas.
+    if (start) {
+      for (let c = 0; c < columns.length; c++) {
+        ws.getCell(1, 4 + c).alignment = { horizontal: "center", vertical: "bottom", textRotation: 90 }
+      }
+      ws.getRow(1).height = 70
     }
 
     const columnWidth = columns.length > 30 ? 4 : 8
@@ -530,13 +569,18 @@ export function GanttChart({
               {columns.map((column) => (
                 <div
                   key={column}
-                  title={columnRange(column)}
+                  title={columnTooltip(column)}
                   className={`py-1.5 text-center text-sm font-medium border-r text-black shrink-0 overflow-hidden ${
                     isBlockEdge(column) ? "border-gray-400" : "border-gray-300"
                   }`}
                   style={{ width: cellWidth }}
                 >
-                  {(column - 1) % labelEvery === 0 ? `${scale.short}${column}` : ""}
+                  {(column - 1) % labelEvery === 0 ? columnLabel(column) : ""}
+                  {start && (
+                    <div className="text-[10px] leading-3 h-3 font-normal text-gray-500">
+                      {(column - 1) % labelEvery === 0 ? columnYear(column) : ""}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

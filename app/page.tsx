@@ -29,7 +29,7 @@ import {
   type TaskInput,
 } from "@/lib/schedule"
 import { createTemplateTasks, exportProjectJson, parseProjectJson } from "@/lib/project-file"
-import { formatUnit, getUnitLabels, type TimeUnit } from "@/lib/time-unit"
+import { formatUnit, getUnitLabels, toIsoDate, type DateMode, type TimeUnit } from "@/lib/time-unit"
 import Image from "next/image"
 
 
@@ -65,6 +65,9 @@ const translations = {
     templateConfirm: "Gerar o template substitui as tarefas atuais. Continuar?",
     importConfirm: "Importar substitui as tarefas atuais. Continuar?",
     importError: "Não foi possível ler o arquivo: não parece um cronograma válido.",
+    dateGeneric: "Genérico",
+    dateStart: "Data inicial",
+    startDateLabel: "Data inicial do projeto",
   },
   en: {
     title: "Project Manager",
@@ -95,6 +98,9 @@ const translations = {
     templateConfirm: "Generating the template replaces the current tasks. Continue?",
     importConfirm: "Importing replaces the current tasks. Continue?",
     importError: "Could not read the file: it does not look like a valid schedule.",
+    dateGeneric: "Generic",
+    dateStart: "Start date",
+    startDateLabel: "Project start date",
   },
   es: {
     title: "Gestor de Proyectos",
@@ -125,11 +131,16 @@ const translations = {
     templateConfirm: "Generar la plantilla reemplaza las tareas actuales. ¿Continuar?",
     importConfirm: "Importar reemplaza las tareas actuales. ¿Continuar?",
     importError: "No se pudo leer el archivo: no parece un cronograma válido.",
+    dateGeneric: "Genérico",
+    dateStart: "Fecha inicial",
+    startDateLabel: "Fecha inicial del proyecto",
   },
 }
 
 const STORAGE_KEY = "crono-gantt-tasks"
 const UNIT_STORAGE_KEY = "crono-gantt-unit"
+const DATE_MODE_STORAGE_KEY = "crono-gantt-date-mode"
+const START_DATE_STORAGE_KEY = "crono-gantt-start-date"
 
 export default function ProjectManager() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -139,6 +150,8 @@ export default function ProjectManager() {
   const [viewMode, setViewMode] = useState<"gantt" | "table">("gantt")
   const [showTaskPanel, setShowTaskPanel] = useState(true)
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("weeks")
+  const [dateMode, setDateMode] = useState<DateMode>("generic")
+  const [startDate, setStartDate] = useState(() => toIsoDate(new Date()))
   const ganttRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const loaded = useRef(false)
@@ -153,6 +166,9 @@ export default function ProjectManager() {
       const savedUnit = localStorage.getItem(UNIT_STORAGE_KEY)
       const unit: TimeUnit = savedUnit === "days" ? "days" : "weeks"
       setTimeUnit(unit)
+      if (localStorage.getItem(DATE_MODE_STORAGE_KEY) === "startDate") setDateMode("startDate")
+      const savedStart = localStorage.getItem(START_DATE_STORAGE_KEY)
+      if (savedStart) setStartDate(savedStart)
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) setTasks(scheduleTasks(JSON.parse(saved) as Task[], unit))
     } catch {
@@ -166,10 +182,12 @@ export default function ProjectManager() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
       localStorage.setItem(UNIT_STORAGE_KEY, timeUnit)
+      localStorage.setItem(DATE_MODE_STORAGE_KEY, dateMode)
+      localStorage.setItem(START_DATE_STORAGE_KEY, startDate)
     } catch {
       // ignora quota/modo privado
     }
-  }, [tasks, timeUnit])
+  }, [tasks, timeUnit, dateMode, startDate])
 
   const addTask = (taskData: TaskInput) => {
     setTasks((prev) => scheduleTasks([...prev, { ...taskData, startWeek: 1, endWeek: 1, color: TASK_COLORS[0] }], timeUnit))
@@ -309,6 +327,33 @@ export default function ProjectManager() {
                   {getUnitLabels(language, unit).label}
                 </Button>
               ))}
+            </div>
+
+            {/* Régua genérica (S1, S2...) ou ancorada numa data inicial real */}
+            <div className="flex items-center gap-2">
+              <div className="flex border rounded-lg">
+                {(["generic", "startDate"] as DateMode[]).map((mode) => (
+                  <Button
+                    key={mode}
+                    onClick={() => setDateMode(mode)}
+                    variant={dateMode === mode ? "default" : "ghost"}
+                    size="sm"
+                    className="rounded-none first:rounded-l-lg last:rounded-r-lg"
+                  >
+                    {mode === "generic" ? t.dateGeneric : t.dateStart}
+                  </Button>
+                ))}
+              </div>
+              {dateMode === "startDate" && (
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => e.target.value && setStartDate(e.target.value)}
+                  aria-label={t.startDateLabel}
+                  title={t.startDateLabel}
+                  className="h-8 rounded-md border px-2 text-sm bg-transparent"
+                />
+              )}
             </div>
 
             <div className="flex border rounded-lg">
@@ -549,6 +594,7 @@ export default function ProjectManager() {
                       projectWeeks={projectWeeks}
                       language={language}
                       timeUnit={timeUnit}
+                      startDate={dateMode === "startDate" ? startDate : null}
                       onUpdateTask={updateTask}
                       onRemoveTask={removeTask}
                       onReorder={reorderTasks}

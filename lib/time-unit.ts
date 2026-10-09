@@ -80,6 +80,70 @@ export function getColumnScales(language: Language, unit: TimeUnit): ColumnScale
   return scales
 }
 
+/* ------------------------------------------------------------- datas reais */
+
+/**
+ * "generic" rotula as colunas como S1, S2...; "startDate" ancora o cronograma
+ * numa data real e as colunas passam a mostrar o dia em que cada uma começa.
+ */
+export type DateMode = "generic" | "startDate"
+
+/** Converte "2026-03-02" (valor do <input type="date">) em Date local, sem fuso. */
+export function parseIsoDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function toIsoDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function addCalendarDays(date: Date, amount: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount)
+}
+
+const isWeekend = (date: Date) => date.getDay() === 0 || date.getDay() === 6
+
+/** Avança `amount` dias úteis; um ponto de partida em fim de semana vai para a segunda seguinte. */
+function addBusinessDays(date: Date, amount: number): Date {
+  let current = date
+  while (isWeekend(current)) current = addCalendarDays(current, 1)
+  let remaining = amount
+  while (remaining > 0) {
+    current = addCalendarDays(current, 1)
+    if (!isWeekend(current)) remaining--
+  }
+  return current
+}
+
+/**
+ * Data em que começa o período `offset` (0 = primeiro). Semanas andam de 7 em 7
+ * dias corridos; dias andam só pelos dias úteis, coerente com a semana de 5 dias.
+ */
+export function getPeriodStartDate(start: Date, unit: TimeUnit, offset: number): Date {
+  return unit === "days" ? addBusinessDays(start, offset) : addCalendarDays(start, offset * 7)
+}
+
+const DATE_LOCALE: Record<Language, string> = { pt: "pt-BR", en: "en-US", es: "es-ES" }
+
+/** "02/03" (pt/es) ou "03/02" (en) — curto o bastante para o cabeçalho da coluna. */
+export function formatShortDate(date: Date, language: Language): string {
+  return date.toLocaleDateString(DATE_LOCALE[language], { day: "2-digit", month: "2-digit" })
+}
+
+/** "seg., 02/03/2026" — para tooltips e exportações. */
+export function formatFullDate(date: Date, language: Language): string {
+  return date.toLocaleDateString(DATE_LOCALE[language], {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+}
+
 /** "3 semanas" / "1 semana" */
 export function formatUnit(amount: number, labels: UnitLabels): string {
   return `${amount} ${amount === 1 ? labels.one : labels.many}`
