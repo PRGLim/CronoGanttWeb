@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -142,15 +142,6 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
   const units = getUnitLabels(language, timeUnit)
   const dayUnits = getUnitLabels(language, "days")
 
-  // Esc fecha o modal
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel()
-    }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onCancel])
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -193,10 +184,9 @@ export function TaskForm({ existingTasks, task, onSubmit, onCancel, language, ti
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={(e) => e.target === e.currentTarget && onCancel()}
-    >
+    // O modal só fecha pelo botão X ou por "Cancelar" — clique fora e Esc não
+    // fecham, para não perder o que já foi digitado.
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{isEditing ? t.editTask : t.newTask}</CardTitle>

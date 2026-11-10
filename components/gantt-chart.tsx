@@ -108,11 +108,15 @@ const CELL_WIDTHS = [16, 24, 32, 48, 64, 88]
 /** 64px — mesma densidade de antes; os níveis menores existem para réguas longas. */
 const DEFAULT_ZOOM = 4
 const LABEL_WIDTH = 280
+/** Altura mínima da linha; cresce quando o nome da tarefa quebra em várias linhas. */
 const ROW_HEIGHT = 44
 /** Altura da barra da tarefa, centralizada na linha. */
 const BAR_HEIGHT = 28
-/** Distância do topo da linha até a base da barra — referência do progresso. */
-const BAR_BOTTOM = (ROW_HEIGHT + BAR_HEIGHT) / 2
+/**
+ * Base da barra — referência do progresso. Relativa ao centro da linha, pois a
+ * altura da linha varia com o tamanho do nome.
+ */
+const BAR_BOTTOM = `calc(50% + ${BAR_HEIGHT / 2}px)`
 const TOTAL_ROW_HEIGHT = 40
 /** Espaço mínimo para um rótulo de coluna caber sem encostar no vizinho. */
 const MIN_LABEL_WIDTH = 28
@@ -124,6 +128,8 @@ const MAX_COMFORTABLE_COLUMNS = 40
 const MIN_BAR_TEXT_WIDTH = 26
 /** Espessura da barrinha de progresso na base da barra da tarefa. */
 const PROGRESS_HEIGHT = 5
+/** Topo da barrinha de progresso: encostada na base da barra. */
+const PROGRESS_TOP = `calc(50% + ${BAR_HEIGHT / 2 - PROGRESS_HEIGHT}px)`
 /** Vermelho claro — mesma cor dentro e fora da barra, inclusive no estouro. */
 const PROGRESS_COLOR = "#fca5a5"
 /** Espaço reservado à direita da barra para o rótulo do percentual ("125%"). */
@@ -615,7 +621,7 @@ export function GanttChart({
                 {/* Coluna de informações — editável */}
                 <div
                   className="px-1 py-1 border-r border-gray-300 bg-white group-hover:bg-gray-50 sticky left-0 z-10 flex items-center gap-1"
-                  style={{ width: LABEL_WIDTH, height: ROW_HEIGHT }}
+                  style={{ width: LABEL_WIDTH, minHeight: ROW_HEIGHT }}
                 >
                   {!isExporting && (
                     <div
@@ -637,7 +643,7 @@ export function GanttChart({
 
                   <div className="flex-1 min-w-0 leading-tight">
                     {isExporting ? (
-                      <div className="font-medium text-sm text-gray-900 truncate px-1">{task.name}</div>
+                      <div className="font-medium text-sm text-gray-900 break-words px-1">{task.name}</div>
                     ) : isEditingName ? (
                       <input
                         autoFocus
@@ -651,7 +657,7 @@ export function GanttChart({
                       <div
                         onClick={() => startEditing(task, "name")}
                         title={t.editName}
-                        className="font-medium text-sm text-gray-900 truncate cursor-text hover:bg-yellow-50 rounded px-1"
+                        className="font-medium text-sm text-gray-900 break-words cursor-text hover:bg-yellow-50 rounded px-1"
                       >
                         {task.name}
                       </div>
@@ -768,7 +774,7 @@ export function GanttChart({
                 {/* Linha do tempo */}
                 <div
                   className="relative group-hover:bg-gray-50 shrink-0"
-                  style={{ width: timelineWidth, height: ROW_HEIGHT }}
+                  style={{ width: timelineWidth, minHeight: ROW_HEIGHT }}
                 >
                   <div className="absolute inset-0 flex">
                     {columns.map((column) => (
@@ -844,7 +850,7 @@ export function GanttChart({
                       className="absolute rounded-r-sm"
                       style={{
                         left: barEnd,
-                        top: BAR_BOTTOM - PROGRESS_HEIGHT,
+                        top: PROGRESS_TOP,
                         width: overrunPeriods * periodWidth,
                         height: PROGRESS_HEIGHT,
                         backgroundColor: PROGRESS_COLOR,
