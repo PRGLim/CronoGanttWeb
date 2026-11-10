@@ -37,6 +37,7 @@ const translations = {
     remove: "Remover tarefa",
     reorder: "Arraste para reordenar",
     editName: "Clique para editar o nome",
+    resizeColumn: "Arraste para ajustar a largura · duplo clique volta ao automático",
     editDuration: "Clique para editar a duração",
     editProgress: "Clique para editar o progresso (dias)",
     progress: "Progresso",
@@ -59,6 +60,7 @@ const translations = {
     remove: "Remove task",
     reorder: "Drag to reorder",
     editName: "Click to edit name",
+    resizeColumn: "Drag to resize · double-click to reset to automatic",
     editDuration: "Click to edit duration",
     editProgress: "Click to edit progress (days)",
     progress: "Progress",
@@ -81,6 +83,7 @@ const translations = {
     remove: "Eliminar tarea",
     reorder: "Arrastra para reordenar",
     editName: "Clic para editar el nombre",
+    resizeColumn: "Arrastra para ajustar el ancho · doble clic vuelve al automático",
     editDuration: "Clic para editar la duración",
     editProgress: "Clic para editar el progreso (días)",
     progress: "Progreso",
@@ -107,12 +110,29 @@ interface GanttChartProps {
 const CELL_WIDTHS = [16, 24, 32, 48, 64, 88]
 /** 64px — mesma densidade de antes; os níveis menores existem para réguas longas. */
 const DEFAULT_ZOOM = 4
+/** Largura mínima da coluna de tarefas na largura automática. */
 const LABEL_WIDTH = 280
+/** Teto da largura automática — só nomes absurdamente longos quebram linha. */
+const MAX_AUTO_LABEL_WIDTH = 1200
+/** Limites ao arrastar a borda da coluna de tarefas. */
+const MIN_RESIZE_LABEL_WIDTH = 160
+const MAX_RESIZE_LABEL_WIDTH = 1200
+/**
+ * Tudo na linha que não é o texto do nome: paddings, alça de arrastar,
+ * lixeira, espaçamentos e borda — com uma pequena folga para arredondamentos.
+ */
+const LABEL_CHROME_WIDTH = 64
+/** Largura escolhida pelo usuário ao arrastar a borda da coluna. */
+const LABEL_WIDTH_STORAGE_KEY = "crono-gantt-label-width"
+/** Altura mínima da linha; cresce quando o nome da tarefa quebra em várias linhas. */
 const ROW_HEIGHT = 44
 /** Altura da barra da tarefa, centralizada na linha. */
 const BAR_HEIGHT = 28
-/** Distância do topo da linha até a base da barra — referência do progresso. */
-const BAR_BOTTOM = (ROW_HEIGHT + BAR_HEIGHT) / 2
+/**
+ * Base da barra — referência do progresso. Relativa ao centro da linha, pois a
+ * altura da linha varia com o tamanho do nome.
+ */
+const BAR_BOTTOM = `calc(50% + ${BAR_HEIGHT / 2}px)`
 const TOTAL_ROW_HEIGHT = 40
 /** Espaço mínimo para um rótulo de coluna caber sem encostar no vizinho. */
 const MIN_LABEL_WIDTH = 28
@@ -124,6 +144,8 @@ const MAX_COMFORTABLE_COLUMNS = 40
 const MIN_BAR_TEXT_WIDTH = 26
 /** Espessura da barrinha de progresso na base da barra da tarefa. */
 const PROGRESS_HEIGHT = 5
+/** Topo da barrinha de progresso: encostada na base da barra. */
+const PROGRESS_TOP = `calc(50% + ${BAR_HEIGHT / 2 - PROGRESS_HEIGHT}px)`
 /** Vermelho claro — mesma cor dentro e fora da barra, inclusive no estouro. */
 const PROGRESS_COLOR = "#fca5a5"
 /** Espaço reservado à direita da barra para o rótulo do percentual ("125%"). */
@@ -178,6 +200,79 @@ export function GanttChart({
   const lastUnit = useRef(timeUnit)
   /** Depois que o usuário escolhe uma escala, o ajuste automático sai de cena. */
   const scalePinned = useRef(false)
+
+  // Coluna de tarefas: por padrão larga o bastante para o maior nome caber em
+  // uma linha; se o usuário arrastar a borda, vale a largura dele (e o nome
+  // quebra linha quando não couber). O PNG exportado segue a mesma largura.
+  const [autoLabelWidth, setAutoLabelWidth] = useState(LABEL_WIDTH)
+  const [manualLabelWidth, setManualLabelWidth] = useState<number | null>(null)
+  const labelResize = useRef<{ startX: number; startWidth: number; width: number } | null>(null)
+  const labelWidth = manualLabelWidth ?? autoLabelWidth
+
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(LABEL_WIDTH_STORAGE_KEY))
+      if (Number.isFinite(saved) && saved > 0) setManualLabelWidth(saved)
+    } catch {
+      // storage indisponível — fica na largura automática
+    }
+  }, [])
+
+  const taskNames = tasks.map((task) => task.name).join("\n")
+  useEffect(() => {
+    let cancelled = false
+    const measure = () => {
+      const element = scrollRef.current
+      const context = document.createElement("canvas").getContext("2d")
+      if (!element || !context || cancelled) return
+      // Mesma fonte do nome na linha: text-sm (14px), font-medium (500).
+      context.font = `500 14px ${getComputedStyle(element).fontFamily}`
+      const longest = Math.max(0, ...taskNames.split("\n").map((name) => context.measureText(name).width))
+      setAutoLabelWidth(
+        Math.min(MAX_AUTO_LABEL_WIDTH, Math.max(LABEL_WIDTH, Math.ceil(longest + LABEL_CHROME_WIDTH))),
+      )
+    }
+    measure()
+    // A fonte web pode carregar depois do primeiro render e mudar a medida.
+    document.fonts?.ready.then(measure)
+    return () => {
+      cancelled = true
+    }
+  }, [taskNames])
+
+  const beginLabelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    labelResize.current = { startX: e.clientX, startWidth: labelWidth, width: labelWidth }
+  }
+  const moveLabelResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const resize = labelResize.current
+    if (!resize) return
+    const width = resize.startWidth + e.clientX - resize.startX
+    resize.width = Math.round(Math.min(MAX_RESIZE_LABEL_WIDTH, Math.max(MIN_RESIZE_LABEL_WIDTH, width)))
+    setManualLabelWidth(resize.width)
+  }
+  const endLabelResize = () => {
+    const resize = labelResize.current
+    if (!resize) return
+    labelResize.current = null
+    // Só um clique (sem arrastar) não fixa a largura — mantém a automática.
+    if (resize.width === resize.startWidth) return
+    try {
+      localStorage.setItem(LABEL_WIDTH_STORAGE_KEY, String(resize.width))
+    } catch {
+      // ignora quota/modo privado
+    }
+  }
+  /** Duplo clique na borda volta para a largura automática. */
+  const resetLabelWidth = () => {
+    setManualLabelWidth(null)
+    try {
+      localStorage.removeItem(LABEL_WIDTH_STORAGE_KEY)
+    } catch {
+      // ignora
+    }
+  }
 
   // Enquanto a escala não for fixada à mão, ela acompanha o tamanho do
   // cronograma — trocar para dias ou crescer o projeto não joga o usuário
@@ -560,10 +655,21 @@ export function GanttChart({
           <div className="flex border-b border-gray-300 sticky top-0 z-30">
             <div
               className="px-2 py-1.5 font-semibold bg-gray-100 border-r border-gray-300 text-black flex items-center gap-2 sticky left-0 z-10"
-              style={{ width: LABEL_WIDTH }}
+              style={{ width: labelWidth }}
             >
               <Image src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo.png`} alt="Logo" width={26} height={26} />
               <span>{t.task}</span>
+              {!isExporting && (
+                <div
+                  onPointerDown={beginLabelResize}
+                  onPointerMove={moveLabelResize}
+                  onPointerUp={endLabelResize}
+                  onPointerCancel={endLabelResize}
+                  onDoubleClick={resetLabelWidth}
+                  title={t.resizeColumn}
+                  className="absolute -right-1 top-0 h-full w-2 cursor-col-resize touch-none z-20 hover:bg-red-500/40"
+                />
+              )}
             </div>
             <div className="flex bg-gray-100" style={{ width: timelineWidth }}>
               {columns.map((column) => (
@@ -615,7 +721,7 @@ export function GanttChart({
                 {/* Coluna de informações — editável */}
                 <div
                   className="px-1 py-1 border-r border-gray-300 bg-white group-hover:bg-gray-50 sticky left-0 z-10 flex items-center gap-1"
-                  style={{ width: LABEL_WIDTH, height: ROW_HEIGHT }}
+                  style={{ width: labelWidth, minHeight: ROW_HEIGHT }}
                 >
                   {!isExporting && (
                     <div
@@ -637,7 +743,7 @@ export function GanttChart({
 
                   <div className="flex-1 min-w-0 leading-tight">
                     {isExporting ? (
-                      <div className="font-medium text-sm text-gray-900 truncate px-1">{task.name}</div>
+                      <div className="font-medium text-sm text-gray-900 break-words px-1">{task.name}</div>
                     ) : isEditingName ? (
                       <input
                         autoFocus
@@ -651,7 +757,7 @@ export function GanttChart({
                       <div
                         onClick={() => startEditing(task, "name")}
                         title={t.editName}
-                        className="font-medium text-sm text-gray-900 truncate cursor-text hover:bg-yellow-50 rounded px-1"
+                        className="font-medium text-sm text-gray-900 break-words cursor-text hover:bg-yellow-50 rounded px-1"
                       >
                         {task.name}
                       </div>
@@ -768,7 +874,7 @@ export function GanttChart({
                 {/* Linha do tempo */}
                 <div
                   className="relative group-hover:bg-gray-50 shrink-0"
-                  style={{ width: timelineWidth, height: ROW_HEIGHT }}
+                  style={{ width: timelineWidth, minHeight: ROW_HEIGHT }}
                 >
                   <div className="absolute inset-0 flex">
                     {columns.map((column) => (
@@ -844,7 +950,7 @@ export function GanttChart({
                       className="absolute rounded-r-sm"
                       style={{
                         left: barEnd,
-                        top: BAR_BOTTOM - PROGRESS_HEIGHT,
+                        top: PROGRESS_TOP,
                         width: overrunPeriods * periodWidth,
                         height: PROGRESS_HEIGHT,
                         backgroundColor: PROGRESS_COLOR,
@@ -872,7 +978,7 @@ export function GanttChart({
           <div className="flex border-t-2 border-gray-400 bg-gray-100 sticky bottom-0 z-20">
             <div
               className="px-2 border-r border-gray-300 bg-gray-100 sticky left-0 z-10 flex items-center font-bold text-sm text-gray-900"
-              style={{ width: LABEL_WIDTH, height: TOTAL_ROW_HEIGHT }}
+              style={{ width: labelWidth, height: TOTAL_ROW_HEIGHT }}
             >
               {t.total}
             </div>
